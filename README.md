@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="assets/lumen.svg" alt="lumen logo" width="128" height="128" />
+  <img src="assets/logo.svg" alt="lumen logo" width="128" height="128" />
   <h1>lumen</h1>
   <p><strong>a minimal, bloat-free browser engineered for night environments and technical utility.</strong></p>
 </div>
