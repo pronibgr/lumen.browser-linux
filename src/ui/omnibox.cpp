@@ -142,8 +142,12 @@ void OmniboxWidget::updateSuggestions() {
     }
     // Unit converter
     auto conv = Omnibox::UnitConverter::convert(m_text);
-    if (conv.has_value())
-        m_suggestions.push_back({conv->formatted, m_text, "conv", 1900});
+    if (conv.has_value()) {
+        Omnibox::SearchItem item{conv->formatted, m_text, "conv", 1900};
+        item.isCurrency = conv->isCurrency;
+        item.isLive = conv->isLive;
+        m_suggestions.push_back(item);
+    }
 
     // History
     auto hist = Storage::Database::instance().searchHistory(m_text, 5);
@@ -342,27 +346,64 @@ void OmniboxWidget::drawPopup(cairo_t* cr, double x, double y, double w) {
             cairo_line_to(cr, ix + 2.6, iy);
             cairo_stroke(cr);
         } else {
-            // Equals / Calc badge
-            sc(cr, sel ? Theme::ACCENT_CALM : Theme::TEXT_MUTED, 0.9f);
+            // Dollar badge ($) for currency conversion and calculation
+            sc(cr, sel ? Theme::ACCENT_CALM : Theme::TEXT_MUTED, 0.95f);
             cairo_set_line_width(cr, 1.4);
             cairo_new_path(cr);
-            cairo_move_to(cr, ix - 3.5, iy - 2.0);
-            cairo_line_to(cr, ix + 3.5, iy - 2.0);
+            // S curves of dollar sign
+            cairo_arc(cr, ix, iy - 2.2, 2.5, M_PI * 0.75, M_PI * 2.0);
+            cairo_arc_negative(cr, ix, iy + 2.2, 2.5, M_PI * 1.0, -M_PI * 0.25);
             cairo_stroke(cr);
-            cairo_move_to(cr, ix - 3.5, iy + 2.0);
-            cairo_line_to(cr, ix + 3.5, iy + 2.0);
+            // Vertical stroke through $
+            cairo_move_to(cr, ix, iy - 5.5);
+            cairo_line_to(cr, ix, iy + 5.5);
             cairo_stroke(cr);
         }
 
         // Title text
         std::string t = cleanUtf8(item.title);
         pango_layout_set_text(lText, t.c_str(), -1);
-        int th = 0;
-        pango_layout_get_pixel_size(lText, nullptr, &th);
+        int tw = 0, th = 0;
+        pango_layout_get_pixel_size(lText, &tw, &th);
         sc(cr, sel ? Theme::TEXT_MAIN : Theme::TEXT_MUTED);
         cairo_new_path(cr);
-        cairo_move_to(cr, x + 44.0, curY + (itemH - th) / 2.0);
+        double textDrawX = x + 44.0;
+        double textDrawY = curY + (itemH - th) / 2.0;
+        cairo_move_to(cr, textDrawX, textDrawY);
         pango_cairo_show_layout(cr, lText);
+
+        // Offline currency indicator: crossed-out globe icon after conversion result
+        if (item.isCurrency && !item.isLive) {
+            double gx = textDrawX + tw + 14.0;
+            double gy = curY + itemH / 2.0;
+
+            // Globe outline & meridians (muted / subtle warning tone)
+            sc(cr, Theme::TEXT_MUTED, 0.75f);
+            cairo_set_line_width(cr, 1.2);
+            cairo_new_path(cr);
+            cairo_arc(cr, gx, gy, 5.2, 0, 2 * M_PI);
+            cairo_stroke(cr);
+            // Equator
+            cairo_move_to(cr, gx - 5.2, gy);
+            cairo_line_to(cr, gx + 5.2, gy);
+            cairo_stroke(cr);
+            // Longitude curves
+            cairo_move_to(cr, gx, gy - 5.2);
+            cairo_curve_to(cr, gx - 2.5, gy - 1.8, gx - 2.5, gy + 1.8, gx, gy + 5.2);
+            cairo_stroke(cr);
+            cairo_move_to(cr, gx, gy - 5.2);
+            cairo_curve_to(cr, gx + 2.5, gy - 1.8, gx + 2.5, gy + 1.8, gx, gy + 5.2);
+            cairo_stroke(cr);
+
+            // Clean diagonal cross-out line through the globe
+            Theme::Color strikeCol{0.92f, 0.40f, 0.35f, 0.9f}; // Soft coral/red
+            sc(cr, strikeCol);
+            cairo_set_line_width(cr, 1.5);
+            cairo_new_path(cr);
+            cairo_move_to(cr, gx - 5.8, gy - 5.8);
+            cairo_line_to(cr, gx + 5.8, gy + 5.8);
+            cairo_stroke(cr);
+        }
 
         curY += itemH;
     }

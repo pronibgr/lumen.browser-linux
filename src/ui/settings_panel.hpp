@@ -35,6 +35,11 @@ public:
     BrowserSettings& settings() { return m_settings; }
     const BrowserSettings& settings() const { return m_settings; }
 
+    float getSliderVisual(int i) const {
+        if (i >= 0 && i < 4) return m_sliderVisual[i];
+        return 1.0f;
+    }
+
     void update(float dt);
     void draw(cairo_t* cr, double winW, double winH);
 
@@ -67,10 +72,13 @@ private:
     // Hover tracking
     int m_hoveredItem = -1;
 
-    // Slider drag
+    // Slider drag & smooth glide animation
     int    m_dragSlider = -1;
     double m_dragSliderX0 = 0;
     double m_dragSliderW  = 0;
+    float  m_sliderVisual[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+    bool   m_sliderVisualInit = false;
+    bool   m_sliderIsDragging = false;
 
     // Cached geometry
     double m_px = 0, m_py = 0, m_pw = 0, m_ph = 0;

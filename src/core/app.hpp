@@ -38,9 +38,12 @@ private:
 
     UI::CompactTopbar m_topbar;
 
-    void update();
+    void update(float dt);
     void syncTopbar();
     bool validActive() const;
+
+    std::chrono::steady_clock::time_point m_lastUpdateTime;
+    bool m_hasLastUpdateTime = false;
 
     void createTab(const std::string& url = "lampa://newtab");
     void closeTab(int index);

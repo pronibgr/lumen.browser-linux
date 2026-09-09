@@ -9,6 +9,8 @@ struct SearchItem {
     std::string url;
     std::string category; // "tab", "history", "bookmark", "calc", "convert", "web"
     int score = 0;
+    bool isCurrency = false;
+    bool isLive = true;
 };
 
 class FuzzySearch {

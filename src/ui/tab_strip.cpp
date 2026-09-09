@@ -95,25 +95,39 @@ void TabStrip::ensureTabVisible(int index) {
 }
 
 bool TabStrip::wantsRedraw() const {
-    return (std::abs(m_cursorX - m_cursorTargetX) > 0.4)
-        || (std::abs(m_cursorW - m_cursorTargetW) > 0.4)
-        || (std::abs(m_currentTabW - m_targetTabW) > 0.4)
-        || (std::abs(m_scrollOffset - m_targetScrollOffset) > 0.4);
+    bool hasClosing = false;
+    for (const auto& t : m_tabs) {
+        if (t && t->isClosing() && t->getCloseProgress() < 1.0f) {
+            hasClosing = true;
+            break;
+        }
+    }
+    return (std::abs(m_cursorX - m_cursorTargetX) > 0.15)
+        || (std::abs(m_cursorW - m_cursorTargetW) > 0.15)
+        || (std::abs(m_currentTabW - m_targetTabW) > 0.15)
+        || (std::abs(m_scrollOffset - m_targetScrollOffset) > 0.15)
+        || hasClosing;
 }
 
 void TabStrip::update(float dt) {
     if (m_tabs.empty() || m_lastW <= 0) return;
 
+    for (auto& tab : m_tabs) {
+        if (tab && tab->isClosing()) {
+            tab->updateClose(dt);
+        }
+    }
+
     // Smooth tab resize animation
-    float resizeFactor = 1.0f - std::exp(-18.0f * dt);
+    float resizeFactor = 1.0f - std::exp(-20.0f * dt);
     m_currentTabW += (m_targetTabW - m_currentTabW) * resizeFactor;
 
     // Smooth scroll animation
-    float scrollFactor = 1.0f - std::exp(-18.0f * dt);
+    float scrollFactor = 1.0f - std::exp(-20.0f * dt);
     m_scrollOffset += (m_targetScrollOffset - m_scrollOffset) * scrollFactor;
 
     // Smooth cursor animation (position and width)
-    float cursorFactor = 1.0f - std::exp(-22.0f * dt);
+    float cursorFactor = 1.0f - std::exp(-24.0f * dt);
     m_cursorX += (m_cursorTargetX - m_cursorX) * cursorFactor;
     m_cursorW += (m_cursorTargetW - m_cursorW) * cursorFactor;
 }
@@ -346,8 +360,9 @@ bool TabStrip::handleMouseMove(double mx, double my) {
 }
 
 bool TabStrip::handleMouseDown(double mx, double my, int button) {
-    (void)my;
     if (m_tabs.empty()) return false;
+    // Strict vertical bounds check: Tab strip only occupies Row 1
+    if (my < 0.0 || my > Theme::ROW1_HEIGHT) return false;
 
     double viewWidth = m_lastW - 36.0;
 

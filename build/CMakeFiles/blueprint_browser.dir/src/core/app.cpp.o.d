@@ -988,6 +988,8 @@ CMakeFiles/blueprint_browser.dir/src/core/app.cpp.o: \
  /usr/include/c++/16/bits/unicode-data.h \
  /home/elliot/Проекты/Blueprint\ Browser/src/theme/colors.hpp \
  /home/elliot/Проекты/Blueprint\ Browser/src/storage/database.hpp \
- /usr/include/sqlite3.h /usr/include/c++/16/iostream \
- /usr/include/c++/16/algorithm /usr/include/c++/16/bits/ranges_algo.h \
+ /usr/include/sqlite3.h \
+ /home/elliot/Проекты/Blueprint\ Browser/src/omnibox/converter.hpp \
+ /usr/include/c++/16/iostream /usr/include/c++/16/algorithm \
+ /usr/include/c++/16/bits/ranges_algo.h \
  /usr/include/c++/16/pstl/glue_algorithm_defs.h

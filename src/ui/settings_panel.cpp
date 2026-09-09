@@ -56,13 +56,25 @@ bool SettingsPanel::isVisible() const {
 }
 
 bool SettingsPanel::wantsRedraw() const {
-    return m_openAnim.isRunning() || m_sectAnim.isRunning() ||
+    bool slidersAnimating = false;
+    float targets[4] = {
+        m_settings.anim.tabSlide,
+        m_settings.anim.tabClose,
+        m_settings.anim.settingsOpen,
+        m_settings.anim.sectionSwitch
+    };
+    for (int i = 0; i < 4; ++i) {
+        if (std::abs(m_sliderVisual[i] - targets[i]) > 0.001f) {
+            slidersAnimating = true;
+            break;
+        }
+    }
+    return m_openAnim.isRunning() || m_sectAnim.isRunning() || slidersAnimating ||
            std::abs(m_sidebarCursorY - static_cast<float>(m_section)) > 0.002f ||
            std::abs(m_toggleAnim - (m_settings.anim.enabled ? 1.0f : 0.0f)) > 0.002f;
 }
 
 void SettingsPanel::update(float dt) {
-    (void)dt;
     // Update open animation speed from settings
     float openDur = 260.f / std::max(0.1f, m_settings.anim.settingsOpen);
     m_openAnim.setDuration(openDur);
@@ -75,13 +87,43 @@ void SettingsPanel::update(float dt) {
     m_openProg  = m_openAnim.value();
     m_sectionProg = m_sectAnim.value();
 
-    // Smooth sidebar cursor interpolation
+    // Smooth sidebar cursor interpolation (framerate-independent exponential decay)
     float targetY = static_cast<float>(m_section);
-    m_sidebarCursorY += (targetY - m_sidebarCursorY) * 0.22f;
+    float cursorFactor = 1.0f - std::exp(-18.0f * dt);
+    m_sidebarCursorY += (targetY - m_sidebarCursorY) * cursorFactor;
 
-    // Smooth toggle animation
+    // Smooth toggle animation (framerate-independent exponential decay)
     float targetToggle = m_settings.anim.enabled ? 1.0f : 0.0f;
-    m_toggleAnim += (targetToggle - m_toggleAnim) * 0.25f;
+    float toggleFactor = 1.0f - std::exp(-20.0f * dt);
+    m_toggleAnim += (targetToggle - m_toggleAnim) * toggleFactor;
+
+    // Initialize visual slider values on first run
+    if (!m_sliderVisualInit) {
+        m_sliderVisual[0] = m_settings.anim.tabSlide;
+        m_sliderVisual[1] = m_settings.anim.tabClose;
+        m_sliderVisual[2] = m_settings.anim.settingsOpen;
+        m_sliderVisual[3] = m_settings.anim.sectionSwitch;
+        m_sliderVisualInit = true;
+    }
+
+    // Smooth slider glide animation
+    float* vals[] = {
+        &m_settings.anim.tabSlide,
+        &m_settings.anim.tabClose,
+        &m_settings.anim.settingsOpen,
+        &m_settings.anim.sectionSwitch,
+    };
+    for (int i = 0; i < 4; ++i) {
+        float target = *vals[i];
+        // When user actively moves mouse while dragging, follow quickly (speed 36) for 0 lag.
+        // When clicked or moving to target, glide smoothly with speed 14 (~200ms ease-out).
+        float speed = (m_dragSlider == i && m_sliderIsDragging) ? 36.0f : 14.0f;
+        float factor = 1.0f - std::exp(-speed * dt);
+        m_sliderVisual[i] += (target - m_sliderVisual[i]) * factor;
+        if (std::abs(target - m_sliderVisual[i]) < 0.001f) {
+            m_sliderVisual[i] = target;
+        }
+    }
 }
 
 void SettingsPanel::sectionSwitch(int to) {
@@ -209,16 +251,16 @@ void SettingsPanel::drawAnimationsSection(cairo_t* cr, double x, double y, doubl
         return;
     }
 
-    // Per-type sliders
-    struct { const char* label; float* val; int id; } sliders[] = {
-        { "Tab switch slide (x speed)",    &a.tabSlide,      10 },
-        { "Tab close animation (x speed)", &a.tabClose,      11 },
-        { "Settings panel open (x speed)", &a.settingsOpen,  12 },
-        { "Section switch (x speed)",      &a.sectionSwitch, 13 },
+    // Per-type sliders with smoothly animated visual values
+    struct { const char* label; float visualVal; int id; } sliders[] = {
+        { "Tab switch slide (x speed)",    m_sliderVisual[0], 10 },
+        { "Tab close animation (x speed)", m_sliderVisual[1], 11 },
+        { "Settings panel open (x speed)", m_sliderVisual[2], 12 },
+        { "Section switch (x speed)",      m_sliderVisual[3], 13 },
     };
     for (auto& s : sliders) {
-        bool hov = (m_hoveredItem == s.id);
-        drawSlider(cr, x, cY, w, *s.val, 0.25f, 3.0f, s.label, hov, s.id);
+        bool hov = (m_hoveredItem == s.id || m_dragSlider == (s.id - 10));
+        drawSlider(cr, x, cY, w, s.visualVal, 0.25f, 3.0f, s.label, hov, s.id);
         cY += 46;
     }
     drawLabel(cr, x, cY, "1.0x = default speed  |  >1.0x = faster  |  <1.0x = slower",
@@ -441,6 +483,7 @@ bool SettingsPanel::handleMouseMove(double mx, double my) {
             double t = (mx - m_dragSliderX0) / m_dragSliderW;
             t = std::clamp(t, 0.0, 1.0);
             *vals[m_dragSlider] = static_cast<float>(0.25 + t * (3.0 - 0.25));
+            m_sliderIsDragging = true;
             return true;
         }
     }
@@ -543,9 +586,10 @@ bool SettingsPanel::handleMouseDown(double mx, double my) {
                     double t = (mx - cX2) / cW;
                     t = std::clamp(t, 0.0, 1.0);
                     *vals[si] = static_cast<float>(0.25 + t * (3.0 - 0.25));
-                    m_dragSlider   = si;
-                    m_dragSliderX0 = cX2;
-                    m_dragSliderW  = cW;
+                    m_dragSlider       = si;
+                    m_dragSliderX0     = cX2;
+                    m_dragSliderW      = cW;
+                    m_sliderIsDragging = false; // Just clicked: slider thumb will smoothly glide to clicked point!
                     return true;
                 }
                 sliderY += 46;
@@ -559,6 +603,7 @@ bool SettingsPanel::handleMouseDown(double mx, double my) {
 bool SettingsPanel::handleMouseUp(double /*mx*/, double /*my*/) {
     if (m_dragSlider >= 0) {
         m_dragSlider = -1;
+        m_sliderIsDragging = false;
         return true;
     }
     return false;

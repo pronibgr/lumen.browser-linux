@@ -1,6 +1,7 @@
 #include "core/app.hpp"
 #include "theme/colors.hpp"
 #include "storage/database.hpp"
+#include "omnibox/converter.hpp"
 #include <iostream>
 #include <algorithm>
 #include <gdk/gdk.h>
@@ -21,10 +22,58 @@ bool Application::initialize(int argc, char* argv[]) {
 
     Storage::Database::instance().initialize();
 
+    g_set_prgname("lampa-browser");
+    g_set_application_name("lampa browser");
+
     m_window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
     gtk_window_set_default_size(GTK_WINDOW(m_window), m_winW, m_winH);
     gtk_window_set_title(GTK_WINDOW(m_window), "lampa browser");
     gtk_window_set_position(GTK_WINDOW(m_window), GTK_WIN_POS_CENTER);
+    #pragma GCC diagnostic push
+    #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+    gtk_window_set_wmclass(GTK_WINDOW(m_window), "lampa-browser", "lampa-browser");
+    #pragma GCC diagnostic pop
+    gtk_window_set_icon_name(GTK_WINDOW(m_window), "lampa-browser");
+
+    // Apply browser logo as window and taskbar icon (supports multi-size pixbufs)
+    const char* iconCandidates[] = {
+        "assets/logo.svg",
+        "../assets/logo.svg",
+        "/home/elliot/Проекты/Blueprint Browser/assets/logo.svg"
+    };
+    GList* iconList = nullptr;
+    for (const char* iconPath : iconCandidates) {
+        GdkPixbuf* pb16 = gdk_pixbuf_new_from_file_at_scale(iconPath, 16, 16, TRUE, nullptr);
+        GdkPixbuf* pb32 = gdk_pixbuf_new_from_file_at_scale(iconPath, 32, 32, TRUE, nullptr);
+        GdkPixbuf* pb48 = gdk_pixbuf_new_from_file_at_scale(iconPath, 48, 48, TRUE, nullptr);
+        GdkPixbuf* pb64 = gdk_pixbuf_new_from_file_at_scale(iconPath, 64, 64, TRUE, nullptr);
+        GdkPixbuf* pb128 = gdk_pixbuf_new_from_file_at_scale(iconPath, 128, 128, TRUE, nullptr);
+        GdkPixbuf* pb256 = gdk_pixbuf_new_from_file_at_scale(iconPath, 256, 256, TRUE, nullptr);
+        if (pb16 && pb32 && pb48 && pb64 && pb128 && pb256) {
+            iconList = g_list_append(iconList, pb16);
+            iconList = g_list_append(iconList, pb32);
+            iconList = g_list_append(iconList, pb48);
+            iconList = g_list_append(iconList, pb64);
+            iconList = g_list_append(iconList, pb128);
+            iconList = g_list_append(iconList, pb256);
+            gtk_window_set_icon_list(GTK_WINDOW(m_window), iconList);
+            gtk_window_set_default_icon_list(iconList);
+            g_list_free_full(iconList, g_object_unref);
+            break;
+        } else {
+            if (pb16) g_object_unref(pb16);
+            if (pb32) g_object_unref(pb32);
+            if (pb48) g_object_unref(pb48);
+            if (pb64) g_object_unref(pb64);
+            if (pb128) g_object_unref(pb128);
+            if (pb256) g_object_unref(pb256);
+            GError* err = nullptr;
+            if (gtk_window_set_icon_from_file(GTK_WINDOW(m_window), iconPath, &err)) {
+                break;
+            }
+            if (err) g_error_free(err);
+        }
+    }
 
     // Dark background for window
     GdkRGBA bgCol{Theme::BG_ABYSS.r, Theme::BG_ABYSS.g, Theme::BG_ABYSS.b, 1.0};
@@ -91,6 +140,21 @@ bool Application::initialize(int argc, char* argv[]) {
         navigateActiveTab(url);
     });
 
+    // When live exchange rates arrive asynchronously, refresh omnibox suggestions & redraw
+    Blueprint::Omnibox::UnitConverter::setOnRatesUpdated([this]() {
+        g_idle_add(+[](gpointer data) -> gboolean {
+            auto* app = static_cast<Application*>(data);
+            if (app->m_topbar.getOmnibox().isFocused()) {
+                app->m_topbar.getOmnibox().updateSuggestions();
+                gtk_widget_queue_draw(app->m_topbarArea);
+                if (app->m_topbar.isAnyOverlayActive()) {
+                    gtk_widget_queue_draw(app->m_overlayArea);
+                }
+            }
+            return G_SOURCE_REMOVE;
+        }, this);
+    });
+
     m_topbar.setOnBack([this]() {
         if (validActive()) { m_tabs[m_activeIdx]->goBack(); syncTopbar(); }
     });
@@ -106,9 +170,31 @@ bool Application::initialize(int argc, char* argv[]) {
 
     createTab("lampa://newtab");
 
-    // 60fps animation timer
+    // VSync-synchronized frame tick for native monitor refresh rates (60/120/144/240Hz)
+    gtk_widget_add_tick_callback(m_window, +[](GtkWidget*, GdkFrameClock*, gpointer data) -> gboolean {
+        auto* app = static_cast<Application*>(data);
+        auto now = std::chrono::steady_clock::now();
+        float dt = 0.016f;
+        if (app->m_hasLastUpdateTime) {
+            float realDt = std::chrono::duration_cast<std::chrono::microseconds>(now - app->m_lastUpdateTime).count() / 1000000.f;
+            dt = std::clamp(realDt, 0.001f, 0.050f);
+        } else {
+            app->m_hasLastUpdateTime = true;
+        }
+        app->m_lastUpdateTime = now;
+        app->update(dt);
+        return G_SOURCE_CONTINUE;
+    }, this, nullptr);
+
+    // Heartbeat fallback timer to ensure animation wakeup when idle
     g_timeout_add(16, +[](gpointer data) -> gboolean {
-        static_cast<Application*>(data)->update();
+        auto* app = static_cast<Application*>(data);
+        if (app->m_topbar.wantsRedraw()) {
+            gtk_widget_queue_draw(app->m_topbarArea);
+            if (app->m_topbar.isAnyOverlayActive()) {
+                gtk_widget_queue_draw(app->m_overlayArea);
+            }
+        }
         return G_SOURCE_CONTINUE;
     }, this);
 
@@ -187,12 +273,29 @@ void Application::closeTab(int index) {
 }
 
 void Application::switchTab(int oldIdx, int newIdx) {
-    (void)oldIdx;
     if (newIdx < 0 || newIdx >= static_cast<int>(m_tabs.size())) return;
+    if (newIdx == oldIdx) return;
     m_activeIdx = newIdx;
 
     std::string tabName = "tab_" + std::to_string(m_tabs[newIdx]->getId());
-    gtk_stack_set_visible_child_name(GTK_STACK(m_stack), tabName.c_str());
+
+    // Directional Tab Slide:
+    // If going right (newIdx > oldIdx), slide LEFT to reveal new tab from the right.
+    // If going left (newIdx < oldIdx), slide RIGHT to reveal new tab from the left.
+    GtkStackTransitionType transType = (newIdx > oldIdx)
+        ? GTK_STACK_TRANSITION_TYPE_SLIDE_LEFT
+        : GTK_STACK_TRANSITION_TYPE_SLIDE_RIGHT;
+
+    auto animSettings = m_topbar.getSettings().settings().anim;
+    if (animSettings.enabled) {
+        guint dur = static_cast<guint>(std::clamp(180.f / std::max(0.1f, animSettings.tabSlide), 50.f, 600.f));
+        gtk_stack_set_transition_duration(GTK_STACK(m_stack), dur);
+        gtk_stack_set_visible_child_full(GTK_STACK(m_stack), tabName.c_str(), transType);
+    } else {
+        gtk_stack_set_transition_duration(GTK_STACK(m_stack), 0);
+        gtk_stack_set_visible_child_full(GTK_STACK(m_stack), tabName.c_str(), GTK_STACK_TRANSITION_TYPE_NONE);
+    }
+
     syncTopbar();
     gtk_widget_queue_draw(m_topbarArea);
 }
@@ -227,8 +330,7 @@ void Application::clearActiveSiteData() {
     });
 }
 
-void Application::update() {
-    float dt = 0.016f;
+void Application::update(float dt) {
     m_topbar.update(dt);
 
     bool overlayActive = m_topbar.isAnyOverlayActive();
@@ -364,46 +466,8 @@ gboolean Application::onWindowKeyPress(GtkWidget*, GdkEventKey* event, gpointer 
     bool ctrl = (event->state & GDK_CONTROL_MASK) != 0;
     bool shift = (event->state & GDK_SHIFT_MASK) != 0;
 
-    // If overlay (settings, certificate banner, or clear data modal) is active
-    if (self->m_topbar.isAnyOverlayActive()) {
-        if (event->keyval == GDK_KEY_Escape) {
-            self->m_topbar.handleKeyPress(event->keyval, event->state, nullptr);
-            gtk_widget_queue_draw(self->m_overlayArea);
-            gtk_widget_queue_draw(self->m_topbarArea);
-            return TRUE;
-        }
-        self->m_topbar.handleKeyPress(event->keyval, event->state, event->string);
-        gtk_widget_queue_draw(self->m_overlayArea);
-        gtk_widget_queue_draw(self->m_topbarArea);
-        return TRUE;
-    }
-
-    // Pass key events to omnibox first if focused (Ctrl+A, Ctrl+C, Ctrl+V, Ctrl+X, Ctrl+Backspace, typing, etc.)
-    if (self->m_topbar.getOmnibox().isFocused()) {
-        if (self->m_topbar.handleKeyPress(event->keyval, event->state, event->string)) {
-            gtk_widget_queue_draw(self->m_topbarArea);
-            return TRUE;
-        }
-    }
-
-    // Reload: F5 or Ctrl + R (respects canReload, blocked on internal pages)
-    if (event->keyval == GDK_KEY_F5 || ((event->keyval == GDK_KEY_r || event->keyval == GDK_KEY_R) && ctrl)) {
-        if (self->validActive()) {
-            auto tab = self->m_tabs[self->m_activeIdx];
-            if (tab && tab->canReload()) {
-                tab->reload();
-            }
-        }
-        return TRUE;
-    }
-
-    // Shift + T: close current active tab (only when omnibox is not focused)
-    if (!self->m_topbar.getOmnibox().isFocused() && shift && !ctrl &&
-        (event->keyval == GDK_KEY_T || event->keyval == GDK_KEY_t)) {
-        self->closeTab(self->m_activeIdx);
-        return TRUE;
-    }
-
+    // 1. First priority: Global browser shortcuts (Tabs, Navigation, Zoom, Zen mode)
+    // These should ALWAYS work regardless of focus or active overlays (except when typing in omnibox for Ctrl+A/C/V/X)
     if (ctrl) {
         // Ctrl + N or Ctrl + T: open new tab
         if (event->keyval == GDK_KEY_n || event->keyval == GDK_KEY_N ||
@@ -416,7 +480,7 @@ gboolean Application::onWindowKeyPress(GtkWidget*, GdkEventKey* event, gpointer 
             self->closeTab(self->m_activeIdx);
             return TRUE;
         }
-        // Ctrl + L: focus omnibox
+        // Ctrl + L: focus omnibox & select all
         if (event->keyval == GDK_KEY_l || event->keyval == GDK_KEY_L) {
             self->m_topbar.getOmnibox().setFocused(true);
             gtk_widget_queue_draw(self->m_topbarArea);
@@ -447,9 +511,57 @@ gboolean Application::onWindowKeyPress(GtkWidget*, GdkEventKey* event, gpointer 
         }
     }
 
+    // F11 Zen Mode toggle
     if (event->keyval == GDK_KEY_F11) {
         self->m_zenMode = !self->m_zenMode;
         gtk_widget_set_visible(self->m_topbarArea, !self->m_zenMode);
+        return TRUE;
+    }
+
+    // 2. Overlay handling (Settings panel, Certificate banner, Clear data modal)
+    // Exclude omnibox popup from intercepting normal typing / navigation
+    if (self->m_topbar.getSettings().isVisible() || self->m_topbar.isAnyOverlayActive()) {
+        if (event->keyval == GDK_KEY_Escape) {
+            self->m_topbar.handleKeyPress(event->keyval, event->state, nullptr);
+            gtk_widget_queue_draw(self->m_overlayArea);
+            gtk_widget_queue_draw(self->m_topbarArea);
+            return TRUE;
+        }
+        // Only route to settings if settings panel is open
+        if (self->m_topbar.getSettings().isVisible()) {
+            self->m_topbar.handleKeyPress(event->keyval, event->state, event->string);
+            gtk_widget_queue_draw(self->m_overlayArea);
+            gtk_widget_queue_draw(self->m_topbarArea);
+            return TRUE;
+        }
+    }
+
+    // 3. Omnibox handling when focused (text editing, navigation, selection, suggestions)
+    if (self->m_topbar.getOmnibox().isFocused()) {
+        if (self->m_topbar.handleKeyPress(event->keyval, event->state, event->string)) {
+            gtk_widget_queue_draw(self->m_topbarArea);
+            if (self->m_topbar.isAnyOverlayActive()) {
+                gtk_widget_queue_draw(self->m_overlayArea);
+            }
+            return TRUE;
+        }
+    }
+
+    // Reload: F5 or Ctrl + R (respects canReload, blocked on internal pages)
+    if (event->keyval == GDK_KEY_F5 || ((event->keyval == GDK_KEY_r || event->keyval == GDK_KEY_R) && ctrl)) {
+        if (self->validActive()) {
+            auto tab = self->m_tabs[self->m_activeIdx];
+            if (tab && tab->canReload()) {
+                tab->reload();
+            }
+        }
+        return TRUE;
+    }
+
+    // Shift + T: close current active tab (only when omnibox is not focused)
+    if (!self->m_topbar.getOmnibox().isFocused() && shift && !ctrl &&
+        (event->keyval == GDK_KEY_T || event->keyval == GDK_KEY_t)) {
+        self->closeTab(self->m_activeIdx);
         return TRUE;
     }
 

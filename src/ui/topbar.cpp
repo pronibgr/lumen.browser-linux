@@ -132,9 +132,11 @@ bool CompactTopbar::isAnyOverlayActive() const {
 }
 
 bool CompactTopbar::wantsRedraw() const {
-    return m_settings.wantsRedraw() || m_tabStrip.wantsRedraw() ||
-           (m_certBannerAlpha > 0.01f && m_certBannerAlpha < 0.99f) ||
-           (m_clearModalAlpha > 0.01f && m_clearModalAlpha < 0.99f) ||
+    float certTarget = m_certBannerOpen ? 1.0f : 0.0f;
+    float modalTarget = m_clearModalOpen ? 1.0f : 0.0f;
+    return m_settings.wantsRedraw() || m_tabStrip.wantsRedraw() || m_neonProgress.wantsRedraw() ||
+           (std::abs(m_certBannerAlpha - certTarget) > 0.002f) ||
+           (std::abs(m_clearModalAlpha - modalTarget) > 0.002f) ||
            (m_certTitleHoverTimer > 0.0 && m_certTitleHoverTimer < 2.2) ||
            (m_clearInfoHoverTimer > 0.0 && m_clearInfoHoverTimer < 1.7);
 }
@@ -849,16 +851,19 @@ bool CompactTopbar::handleMouseDown(double mx, double my) {
     if (m_hoveredNav == 2 && m_canReload    && m_onReload)  { m_onReload();  return true; }
     if (m_hoveredNav == 3) { m_settings.toggle(); return true; }
 
+    // Row 1: Nav buttons, tab strip, and settings button
     if (my <= Theme::ROW1_HEIGHT) {
         if (m_tabStrip.handleMouseDown(mx, my, 1)) {
             m_omnibox.setFocused(false);
             return true;
         }
-    } else {
-        if (m_tabStrip.handleMouseDown(mx, my, 1)) return true;
+        return false;
     }
 
-    if (m_omnibox.handleMouseDown(mx, my))     return true;
+    // Row 2: Omnibox (single click focus and text editing)
+    if (m_omnibox.handleMouseDown(mx, my)) {
+        return true;
+    }
     return false;
 }
 

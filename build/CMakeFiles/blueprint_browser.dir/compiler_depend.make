@@ -318,6 +318,7 @@ CMakeFiles/blueprint_browser.dir/src/core/app.cpp.o: /home/elliot/Проекты
   /home/elliot/Проекты/Blueprint\ Browser/src/core/config.hpp \
   /home/elliot/Проекты/Blueprint\ Browser/src/engine/tab_transition.hpp \
   /home/elliot/Проекты/Blueprint\ Browser/src/engine/web_tab.hpp \
+  /home/elliot/Проекты/Blueprint\ Browser/src/omnibox/converter.hpp \
   /home/elliot/Проекты/Blueprint\ Browser/src/omnibox/fuzzy_search.hpp \
   /home/elliot/Проекты/Blueprint\ Browser/src/storage/database.hpp \
   /home/elliot/Проекты/Blueprint\ Browser/src/theme/colors.hpp \
@@ -5850,11 +5851,15 @@ CMakeFiles/blueprint_browser.dir/src/omnibox/converter.cpp.o: /home/elliot/Пр�
   /usr/include/asm-generic/errno.h \
   /usr/include/asm-generic/int-ll64.h \
   /usr/include/asm-generic/posix_types.h \
+  /usr/include/asm-generic/socket.h \
+  /usr/include/asm-generic/sockios.h \
   /usr/include/asm-generic/types.h \
   /usr/include/asm/bitsperlong.h \
   /usr/include/asm/errno.h \
   /usr/include/asm/posix_types.h \
   /usr/include/asm/posix_types_64.h \
+  /usr/include/asm/socket.h \
+  /usr/include/asm/sockios.h \
   /usr/include/asm/types.h \
   /usr/include/bits/atomic_wide_counter.h \
   /usr/include/bits/byteswap.h \
@@ -5865,15 +5870,23 @@ CMakeFiles/blueprint_browser.dir/src/omnibox/converter.cpp.o: /home/elliot/Пр�
   /usr/include/bits/floatn-common.h \
   /usr/include/bits/floatn.h \
   /usr/include/bits/libc-header-start.h \
+  /usr/include/bits/local_lim.h \
   /usr/include/bits/locale.h \
   /usr/include/bits/long-double.h \
+  /usr/include/bits/posix1_lim.h \
+  /usr/include/bits/posix2_lim.h \
   /usr/include/bits/pthread_stack_min-dynamic.h \
   /usr/include/bits/pthreadtypes-arch.h \
   /usr/include/bits/pthreadtypes.h \
   /usr/include/bits/sched.h \
   /usr/include/bits/select.h \
   /usr/include/bits/setjmp.h \
+  /usr/include/bits/sockaddr.h \
+  /usr/include/bits/socket.h \
+  /usr/include/bits/socket_type.h \
   /usr/include/bits/stdint-intn.h \
+  /usr/include/bits/stdint-least.h \
+  /usr/include/bits/stdint-uintn.h \
   /usr/include/bits/stdio.h \
   /usr/include/bits/stdio_lim.h \
   /usr/include/bits/stdlib-bsearch.h \
@@ -5902,7 +5915,9 @@ CMakeFiles/blueprint_browser.dir/src/omnibox/converter.cpp.o: /home/elliot/Пр�
   /usr/include/bits/types/sigset_t.h \
   /usr/include/bits/types/struct_FILE.h \
   /usr/include/bits/types/struct___jmp_buf_tag.h \
+  /usr/include/bits/types/struct_iovec.h \
   /usr/include/bits/types/struct_itimerspec.h \
+  /usr/include/bits/types/struct_osockaddr.h \
   /usr/include/bits/types/struct_sched_param.h \
   /usr/include/bits/types/struct_timespec.h \
   /usr/include/bits/types/struct_timeval.h \
@@ -5912,33 +5927,48 @@ CMakeFiles/blueprint_browser.dir/src/omnibox/converter.cpp.o: /home/elliot/Пр�
   /usr/include/bits/types/wint_t.h \
   /usr/include/bits/typesizes.h \
   /usr/include/bits/uintn-identity.h \
+  /usr/include/bits/uio_lim.h \
   /usr/include/bits/waitflags.h \
   /usr/include/bits/waitstatus.h \
   /usr/include/bits/wchar.h \
   /usr/include/bits/wctype-wchar.h \
   /usr/include/bits/wordsize.h \
+  /usr/include/bits/xopen_lim.h \
   /usr/include/c++/16/algorithm \
+  /usr/include/c++/16/array \
+  /usr/include/c++/16/atomic \
   /usr/include/c++/16/backward/binders.h \
   /usr/include/c++/16/bit \
   /usr/include/c++/16/bits/algorithmfwd.h \
+  /usr/include/c++/16/bits/align.h \
   /usr/include/c++/16/bits/alloc_traits.h \
+  /usr/include/c++/16/bits/allocated_ptr.h \
   /usr/include/c++/16/bits/allocator.h \
+  /usr/include/c++/16/bits/atomic_base.h \
+  /usr/include/c++/16/bits/atomic_lockfree_defines.h \
+  /usr/include/c++/16/bits/atomic_timed_wait.h \
+  /usr/include/c++/16/bits/atomic_wait.h \
   /usr/include/c++/16/bits/basic_ios.h \
   /usr/include/c++/16/bits/basic_ios.tcc \
   /usr/include/c++/16/bits/basic_string.h \
   /usr/include/c++/16/bits/basic_string.tcc \
+  /usr/include/c++/16/bits/binders.h \
   /usr/include/c++/16/bits/char_traits.h \
   /usr/include/c++/16/bits/charconv.h \
+  /usr/include/c++/16/bits/chrono.h \
+  /usr/include/c++/16/bits/chrono_io.h \
   /usr/include/c++/16/bits/codecvt.h \
   /usr/include/c++/16/bits/concept_check.h \
   /usr/include/c++/16/bits/cpp_type_traits.h \
   /usr/include/c++/16/bits/cxxabi_forced.h \
   /usr/include/c++/16/bits/cxxabi_init_exception.h \
+  /usr/include/c++/16/bits/deque.tcc \
   /usr/include/c++/16/bits/enable_special_members.h \
   /usr/include/c++/16/bits/erase_if.h \
   /usr/include/c++/16/bits/exception.h \
   /usr/include/c++/16/bits/exception_defines.h \
   /usr/include/c++/16/bits/exception_ptr.h \
+  /usr/include/c++/16/bits/formatfwd.h \
   /usr/include/c++/16/bits/functexcept.h \
   /usr/include/c++/16/bits/functional_hash.h \
   /usr/include/c++/16/bits/hash_bytes.h \
@@ -5959,6 +5989,7 @@ CMakeFiles/blueprint_browser.dir/src/omnibox/converter.cpp.o: /home/elliot/Пр�
   /usr/include/c++/16/bits/max_size_type.h \
   /usr/include/c++/16/bits/memory_resource.h \
   /usr/include/c++/16/bits/memoryfwd.h \
+  /usr/include/c++/16/bits/monostate.h \
   /usr/include/c++/16/bits/move.h \
   /usr/include/c++/16/bits/nested_exception.h \
   /usr/include/c++/16/bits/new_allocator.h \
@@ -5969,6 +6000,7 @@ CMakeFiles/blueprint_browser.dir/src/omnibox/converter.cpp.o: /home/elliot/Пр�
   /usr/include/c++/16/bits/ostream.tcc \
   /usr/include/c++/16/bits/ostream_insert.h \
   /usr/include/c++/16/bits/ostream_print.h \
+  /usr/include/c++/16/bits/parse_numbers.h \
   /usr/include/c++/16/bits/postypes.h \
   /usr/include/c++/16/bits/predefined_ops.h \
   /usr/include/c++/16/bits/ptr_traits.h \
@@ -5979,9 +6011,28 @@ CMakeFiles/blueprint_browser.dir/src/omnibox/converter.cpp.o: /home/elliot/Пр�
   /usr/include/c++/16/bits/ranges_base.h \
   /usr/include/c++/16/bits/ranges_cmp.h \
   /usr/include/c++/16/bits/ranges_util.h \
+  /usr/include/c++/16/bits/refwrap.h \
+  /usr/include/c++/16/bits/regex.h \
+  /usr/include/c++/16/bits/regex.tcc \
+  /usr/include/c++/16/bits/regex_automaton.h \
+  /usr/include/c++/16/bits/regex_automaton.tcc \
+  /usr/include/c++/16/bits/regex_compiler.h \
+  /usr/include/c++/16/bits/regex_compiler.tcc \
+  /usr/include/c++/16/bits/regex_constants.h \
+  /usr/include/c++/16/bits/regex_error.h \
+  /usr/include/c++/16/bits/regex_executor.h \
+  /usr/include/c++/16/bits/regex_executor.tcc \
+  /usr/include/c++/16/bits/regex_scanner.h \
+  /usr/include/c++/16/bits/regex_scanner.tcc \
   /usr/include/c++/16/bits/requires_hosted.h \
+  /usr/include/c++/16/bits/semaphore_base.h \
+  /usr/include/c++/16/bits/shared_ptr.h \
+  /usr/include/c++/16/bits/shared_ptr_base.h \
   /usr/include/c++/16/bits/sstream.tcc \
   /usr/include/c++/16/bits/std_abs.h \
+  /usr/include/c++/16/bits/std_function.h \
+  /usr/include/c++/16/bits/std_mutex.h \
+  /usr/include/c++/16/bits/std_thread.h \
   /usr/include/c++/16/bits/stdexcept_except.h \
   /usr/include/c++/16/bits/stdexcept_throw.h \
   /usr/include/c++/16/bits/stdexcept_throwfwd.h \
@@ -5989,32 +6040,45 @@ CMakeFiles/blueprint_browser.dir/src/omnibox/converter.cpp.o: /home/elliot/Пр�
   /usr/include/c++/16/bits/stl_algobase.h \
   /usr/include/c++/16/bits/stl_bvector.h \
   /usr/include/c++/16/bits/stl_construct.h \
+  /usr/include/c++/16/bits/stl_deque.h \
   /usr/include/c++/16/bits/stl_function.h \
   /usr/include/c++/16/bits/stl_heap.h \
   /usr/include/c++/16/bits/stl_iterator.h \
   /usr/include/c++/16/bits/stl_iterator_base_funcs.h \
   /usr/include/c++/16/bits/stl_iterator_base_types.h \
+  /usr/include/c++/16/bits/stl_map.h \
   /usr/include/c++/16/bits/stl_pair.h \
+  /usr/include/c++/16/bits/stl_stack.h \
   /usr/include/c++/16/bits/stl_tempbuf.h \
+  /usr/include/c++/16/bits/stl_tree.h \
   /usr/include/c++/16/bits/stl_uninitialized.h \
   /usr/include/c++/16/bits/stl_vector.h \
   /usr/include/c++/16/bits/streambuf.tcc \
   /usr/include/c++/16/bits/streambuf_iterator.h \
   /usr/include/c++/16/bits/string_view.tcc \
   /usr/include/c++/16/bits/stringfwd.h \
+  /usr/include/c++/16/bits/this_thread_sleep.h \
+  /usr/include/c++/16/bits/unicode-data.h \
+  /usr/include/c++/16/bits/unicode.h \
   /usr/include/c++/16/bits/uniform_int_dist.h \
+  /usr/include/c++/16/bits/unique_lock.h \
+  /usr/include/c++/16/bits/unique_ptr.h \
   /usr/include/c++/16/bits/unordered_map.h \
   /usr/include/c++/16/bits/uses_allocator.h \
   /usr/include/c++/16/bits/uses_allocator_args.h \
   /usr/include/c++/16/bits/utility.h \
   /usr/include/c++/16/bits/vector.tcc \
   /usr/include/c++/16/bits/version.h \
+  /usr/include/c++/16/bitset \
   /usr/include/c++/16/cctype \
   /usr/include/c++/16/cerrno \
+  /usr/include/c++/16/charconv \
+  /usr/include/c++/16/chrono \
   /usr/include/c++/16/clocale \
   /usr/include/c++/16/compare \
   /usr/include/c++/16/concepts \
   /usr/include/c++/16/cstddef \
+  /usr/include/c++/16/cstdint \
   /usr/include/c++/16/cstdio \
   /usr/include/c++/16/cstdlib \
   /usr/include/c++/16/ctime \
@@ -6022,20 +6086,26 @@ CMakeFiles/blueprint_browser.dir/src/omnibox/converter.cpp.o: /home/elliot/Пр�
   /usr/include/c++/16/cwctype \
   /usr/include/c++/16/debug/assertions.h \
   /usr/include/c++/16/debug/debug.h \
+  /usr/include/c++/16/deque \
   /usr/include/c++/16/exception \
   /usr/include/c++/16/ext/aligned_buffer.h \
   /usr/include/c++/16/ext/alloc_traits.h \
   /usr/include/c++/16/ext/atomicity.h \
+  /usr/include/c++/16/ext/concurrence.h \
   /usr/include/c++/16/ext/numeric_traits.h \
   /usr/include/c++/16/ext/string_conversions.h \
   /usr/include/c++/16/ext/type_traits.h \
+  /usr/include/c++/16/format \
+  /usr/include/c++/16/functional \
   /usr/include/c++/16/initializer_list \
   /usr/include/c++/16/iomanip \
   /usr/include/c++/16/ios \
   /usr/include/c++/16/iosfwd \
+  /usr/include/c++/16/iostream \
   /usr/include/c++/16/istream \
   /usr/include/c++/16/limits \
   /usr/include/c++/16/locale \
+  /usr/include/c++/16/mutex \
   /usr/include/c++/16/new \
   /usr/include/c++/16/numbers \
   /usr/include/c++/16/optional \
@@ -6043,12 +6113,19 @@ CMakeFiles/blueprint_browser.dir/src/omnibox/converter.cpp.o: /home/elliot/Пр�
   /usr/include/c++/16/pstl/execution_defs.h \
   /usr/include/c++/16/pstl/glue_algorithm_defs.h \
   /usr/include/c++/16/pstl/pstl_config.h \
+  /usr/include/c++/16/ratio \
+  /usr/include/c++/16/regex \
+  /usr/include/c++/16/semaphore \
+  /usr/include/c++/16/span \
   /usr/include/c++/16/sstream \
+  /usr/include/c++/16/stack \
   /usr/include/c++/16/stdexcept \
+  /usr/include/c++/16/stop_token \
   /usr/include/c++/16/streambuf \
   /usr/include/c++/16/string \
   /usr/include/c++/16/string_view \
   /usr/include/c++/16/system_error \
+  /usr/include/c++/16/thread \
   /usr/include/c++/16/tuple \
   /usr/include/c++/16/type_traits \
   /usr/include/c++/16/typeinfo \
@@ -6068,6 +6145,16 @@ CMakeFiles/blueprint_browser.dir/src/omnibox/converter.cpp.o: /home/elliot/Пр�
   /usr/include/c++/16/x86_64-pc-linux-gnu/bits/os_defines.h \
   /usr/include/c++/16/x86_64-pc-linux-gnu/bits/time_members.h \
   /usr/include/ctype.h \
+  /usr/include/curl/curl.h \
+  /usr/include/curl/curlver.h \
+  /usr/include/curl/easy.h \
+  /usr/include/curl/header.h \
+  /usr/include/curl/mprintf.h \
+  /usr/include/curl/multi.h \
+  /usr/include/curl/options.h \
+  /usr/include/curl/system.h \
+  /usr/include/curl/urlapi.h \
+  /usr/include/curl/websockets.h \
   /usr/include/endian.h \
   /usr/include/errno.h \
   /usr/include/features-time64.h \
@@ -6075,7 +6162,9 @@ CMakeFiles/blueprint_browser.dir/src/omnibox/converter.cpp.o: /home/elliot/Пр�
   /usr/include/gnu/stubs-64.h \
   /usr/include/gnu/stubs.h \
   /usr/include/libintl.h \
+  /usr/include/limits.h \
   /usr/include/linux/errno.h \
+  /usr/include/linux/limits.h \
   /usr/include/linux/posix_types.h \
   /usr/include/linux/sched/types.h \
   /usr/include/linux/stddef.h \
@@ -6084,17 +6173,23 @@ CMakeFiles/blueprint_browser.dir/src/omnibox/converter.cpp.o: /home/elliot/Пр�
   /usr/include/pthread.h \
   /usr/include/sched.h \
   /usr/include/stdc-predef.h \
+  /usr/include/stdint.h \
   /usr/include/stdio.h \
   /usr/include/stdlib.h \
   /usr/include/sys/cdefs.h \
   /usr/include/sys/select.h \
   /usr/include/sys/single_threaded.h \
+  /usr/include/sys/socket.h \
+  /usr/include/sys/time.h \
   /usr/include/sys/types.h \
   /usr/include/time.h \
   /usr/include/wchar.h \
   /usr/include/wctype.h \
+  /usr/lib/gcc/x86_64-pc-linux-gnu/16/include/limits.h \
   /usr/lib/gcc/x86_64-pc-linux-gnu/16/include/stdarg.h \
-  /usr/lib/gcc/x86_64-pc-linux-gnu/16/include/stddef.h
+  /usr/lib/gcc/x86_64-pc-linux-gnu/16/include/stddef.h \
+  /usr/lib/gcc/x86_64-pc-linux-gnu/16/include/stdint.h \
+  /usr/lib/gcc/x86_64-pc-linux-gnu/16/include/syslimits.h
 
 CMakeFiles/blueprint_browser.dir/src/omnibox/fuzzy_search.cpp.o: /home/elliot/Проекты/Blueprint\ Browser/src/omnibox/fuzzy_search.cpp \
   /home/elliot/Проекты/Blueprint\ Browser/src/omnibox/fuzzy_search.hpp \
@@ -11406,6 +11501,28 @@ CMakeFiles/blueprint_browser.dir/src/main.cpp.o:
 
 /home/elliot/Проекты/Blueprint\ Browser/src/omnibox/fuzzy_search.cpp:
 
+/usr/include/c++/16/regex:
+
+/usr/include/c++/16/bits/stl_tree.h:
+
+/usr/include/c++/16/bits/stl_map.h:
+
+/usr/include/c++/16/bits/regex_scanner.tcc:
+
+/usr/include/c++/16/bits/regex_scanner.h:
+
+/usr/include/c++/16/bits/regex_executor.h:
+
+/usr/include/c++/16/bits/regex_error.h:
+
+/usr/include/c++/16/bits/regex_constants.h:
+
+/usr/include/c++/16/bits/regex_compiler.tcc:
+
+/usr/include/c++/16/bits/regex_automaton.tcc:
+
+/usr/include/c++/16/bits/regex.tcc:
+
 /usr/include/c++/16/iomanip:
 
 /usr/include/c++/16/bits/quoted_string.h:
@@ -11457,6 +11574,8 @@ CMakeFiles/blueprint_browser.dir/src/main.cpp.o:
 /usr/include/openssl/opensslconf.h:
 
 /usr/include/openssl/objectserr.h:
+
+/usr/include/c++/16/bits/regex.h:
 
 /usr/include/openssl/lhash.h:
 
@@ -11606,6 +11725,8 @@ CMakeFiles/blueprint_browser.dir/src/main.cpp.o:
 
 /usr/include/webkitgtk-4.1/webkit/WebKitInstallMissingMediaPluginsPermissionRequest.h:
 
+/usr/include/c++/16/stack:
+
 /usr/include/webkitgtk-4.1/webkit/WebKitGeolocationPermissionRequest.h:
 
 /usr/include/webkitgtk-4.1/webkit/WebKitGeolocationManager.h:
@@ -11639,6 +11760,8 @@ CMakeFiles/blueprint_browser.dir/src/main.cpp.o:
 /usr/include/webkitgtk-4.1/webkit/WebKitCookieManager.h:
 
 /usr/include/webkitgtk-4.1/webkit/WebKitContextMenuActions.h:
+
+/usr/include/webkitgtk-4.1/webkit/WebKitContextMenu.h:
 
 /usr/include/webkitgtk-4.1/webkit/WebKitContextMenuItem.h:
 
@@ -11942,6 +12065,8 @@ CMakeFiles/blueprint_browser.dir/src/omnibox/fuzzy_search.cpp.o:
 
 /usr/include/SDL2/SDL_stdinc.h:
 
+/usr/include/c++/16/bits/regex_compiler.h:
+
 /usr/include/glib-2.0/glib/glib-autocleanups.h:
 
 /usr/include/libsoup-3.0/libsoup/soup-websocket-extension.h:
@@ -12226,8 +12351,6 @@ CMakeFiles/blueprint_browser.dir/src/omnibox/fuzzy_search.cpp.o:
 
 /usr/include/c++/16/bits/hash_bytes.h:
 
-/usr/include/glib-2.0/gio/gsettings.h:
-
 /usr/include/glib-2.0/gio/gdbusmethodinvocation.h:
 
 /usr/include/bits/sigevent-consts.h:
@@ -12299,6 +12422,8 @@ CMakeFiles/blueprint_browser.dir/src/omnibox/fuzzy_search.cpp.o:
 /usr/include/c++/16/bits/atomic_wait.h:
 
 /usr/include/glib-2.0/gio/gnetworkaddress.h:
+
+/usr/include/c++/16/bitset:
 
 /usr/include/c++/16/x86_64-pc-linux-gnu/bits/messages_members.h:
 
@@ -12786,10 +12911,6 @@ CMakeFiles/blueprint_browser.dir/src/ui/settings_panel.cpp.o:
 
 /usr/include/bits/types.h:
 
-/usr/include/atk-1.0/atk/atktablecell.h:
-
-/usr/include/gtk-3.0/gtk/gtkpopover.h:
-
 /usr/include/webkitgtk-4.1/jsc/JSCAutocleanups.h:
 
 /usr/include/c++/16/bits/nested_exception.h:
@@ -12905,6 +13026,12 @@ CMakeFiles/blueprint_browser.dir/src/ui/settings_panel.cpp.o:
 /usr/include/glib-2.0/gio/gdebugcontrollerdbus.h:
 
 /usr/include/gtk-3.0/gtk/gtkshortcutsshortcut.h:
+
+/usr/include/gtk-3.0/gtk/gtkpopover.h:
+
+/usr/include/atk-1.0/atk/atktablecell.h:
+
+/usr/include/glib-2.0/gio/gsettings.h:
 
 /usr/include/c++/16/bits/predefined_ops.h:
 
@@ -13133,6 +13260,8 @@ CMakeFiles/blueprint_browser.dir/src/ui/settings_panel.cpp.o:
 CMakeFiles/blueprint_browser.dir/src/engine/tab_transition.cpp.o:
 
 /usr/include/linux/sched/types.h:
+
+/usr/include/c++/16/bits/stl_stack.h:
 
 /usr/include/glib-2.0/gio/gpropertyaction.h:
 
@@ -13816,6 +13945,8 @@ CMakeFiles/blueprint_browser.dir/src/omnibox/calc_parser.cpp.o:
 
 /usr/include/gtk-3.0/gtk/gtkapplicationwindow.h:
 
+/usr/include/c++/16/bits/regex_automaton.h:
+
 /usr/include/pango-1.0/pango/pango-types.h:
 
 /usr/include/gtk-3.0/gtk/gtkaspectframe.h:
@@ -14010,9 +14141,9 @@ CMakeFiles/blueprint_browser.dir/src/core/app.cpp.o:
 
 /usr/include/gtk-3.0/gtk/gtkrecentchooserdialog.h:
 
-/home/elliot/Проекты/Blueprint\ Browser/src/omnibox/converter.hpp:
-
 /usr/include/openssl/dsaerr.h:
+
+/home/elliot/Проекты/Blueprint\ Browser/src/omnibox/converter.hpp:
 
 /usr/include/gtk-3.0/gtk/gtkrecentchoosermenu.h:
 
@@ -14025,6 +14156,8 @@ CMakeFiles/blueprint_browser.dir/src/core/app.cpp.o:
 /usr/include/pango-1.0/pango/pango-fontset-simple.h:
 
 /usr/include/c++/16/codecvt:
+
+/usr/include/c++/16/bits/regex_executor.tcc:
 
 /usr/include/gtk-3.0/gtk/gtkrevealer.h:
 
@@ -14295,5 +14428,3 @@ CMakeFiles/blueprint_browser.dir/src/core/app.cpp.o:
 /usr/lib/libatk-bridge-2.0.so.0:
 
 /usr/include/webkitgtk-4.1/webkit/WebKitColorChooserRequest.h:
-
-/usr/include/webkitgtk-4.1/webkit/WebKitContextMenu.h:

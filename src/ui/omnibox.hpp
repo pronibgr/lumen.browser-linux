@@ -70,8 +70,10 @@ private:
     std::function<void(const std::string&)> m_onNavigate;
 
     int  xToCharIndex(double mouseX);
-    void updateSuggestions();
     void executeSelection();
+
+public:
+    void updateSuggestions();
 };
 
 } // namespace Blueprint::UI
