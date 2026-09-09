@@ -4,10 +4,51 @@
 #include <openssl/x509.h>
 #include <openssl/pem.h>
 #include <openssl/x509v3.h>
+#include <sqlite3.h>
+#include "storage/database.hpp"
+#include "core/config.hpp"
 
 namespace Blueprint::Engine {
 
 namespace {
+
+// count actual stored cookies for host from sqlite jar
+static uint64_t getCookieBytesForHost(const std::string& host) {
+    if (host.empty()) return 0;
+    std::string dataDir = std::string(g_get_user_data_dir()) + "/lumen-browser";
+    std::string cookiePath = dataDir + "/cookies.sqlite";
+    if (!g_file_test(cookiePath.c_str(), G_FILE_TEST_EXISTS)) {
+        cookiePath = std::string(g_get_user_data_dir()) + "/lampa-browser/cookies.sqlite";
+        if (!g_file_test(cookiePath.c_str(), G_FILE_TEST_EXISTS)) {
+            cookiePath = std::string(g_get_user_data_dir()) + "/blueprint/cookies.sqlite";
+            if (!g_file_test(cookiePath.c_str(), G_FILE_TEST_EXISTS)) return 0;
+        }
+    }
+
+    sqlite3* db = nullptr;
+    if (sqlite3_open_v2(cookiePath.c_str(), &db, SQLITE_OPEN_READONLY, nullptr) != SQLITE_OK) {
+        if (db) sqlite3_close(db);
+        return 0;
+    }
+
+    std::string h = host;
+    if (h.rfind("www.", 0) == 0) h = h.substr(4);
+    std::string pattern = "%" + h + "%";
+
+    const char* sql = "SELECT SUM(length(name) + length(value) + 64) FROM moz_cookies WHERE host LIKE ?1;";
+    sqlite3_stmt* stmt = nullptr;
+    uint64_t bytes = 0;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, pattern.c_str(), -1, SQLITE_TRANSIENT);
+        if (sqlite3_step(stmt) == SQLITE_ROW) {
+            sqlite3_int64 val = sqlite3_column_int64(stmt, 0);
+            if (val > 0) bytes = static_cast<uint64_t>(val);
+        }
+        sqlite3_finalize(stmt);
+    }
+    sqlite3_close(db);
+    return bytes;
+}
 
 std::string extractHost(const std::string& url) {
     std::string u = url;
@@ -147,7 +188,7 @@ const char* NEW_TAB_HTML = R"html(
     <div class="header">
       <div class="accent-bar"></div>
       <div class="title-group">
-        <h1>lampa browser</h1>
+        <h1>lumen browser</h1>
         <p>Linux Edition &bull; Deep Obsidian &bull; WebKit High Performance &bull; Zero Telemetry</p>
       </div>
     </div>
@@ -194,31 +235,36 @@ const char* NEW_TAB_HTML = R"html(
 WebTab::WebTab(int id, const std::string& url, const std::string& title)
     : m_id(id), m_url(url), m_title(title) {
 
-    // Ensure DMABUF renderer is disabled to prevent Linux driver protocol errors
+    // turn off dmabuf or nvidia/mesa drivers crash on linux lol
     setenv("WEBKIT_DISABLE_DMABUF_RENDERER", "1", 1);
 
     m_webView = webkit_web_view_new();
 
-    // Enable hardware-accelerated features, developer extras, JavaScript
+    // enable hardware acceleration, smooth scroll, dev tools
     WebKitSettings* settings = webkit_web_view_get_settings(WEBKIT_WEB_VIEW(m_webView));
     webkit_settings_set_enable_javascript(settings, TRUE);
     webkit_settings_set_enable_developer_extras(settings, TRUE);
     webkit_settings_set_enable_webgl(settings, TRUE);
     webkit_settings_set_enable_smooth_scrolling(settings, TRUE);
     webkit_settings_set_enable_page_cache(settings, TRUE);
-    webkit_settings_set_user_agent_with_application_details(settings, "lampa browser", "1.0");
+    webkit_settings_set_user_agent_with_application_details(settings, "lumen browser", "1.0");
 
-    // Default dark background matching Deep Obsidian
+    // dark obsidian bg so it doesnt flash blinding white while loading
     GdkRGBA bg{0.055, 0.067, 0.086, 1.0};
     webkit_web_view_set_background_color(WEBKIT_WEB_VIEW(m_webView), &bg);
 
-    // Configure persistent SQLite cookie storage
+    // persistent sqlite cookie storage so logins actually stick around
     WebKitWebContext* ctx = webkit_web_view_get_context(WEBKIT_WEB_VIEW(m_webView));
     WebKitCookieManager* cm = webkit_web_context_get_cookie_manager(ctx);
-    std::string dataDir = std::string(g_get_user_data_dir()) + "/lampa-browser";
+    std::string dataDir = std::string(g_get_user_data_dir()) + "/lumen-browser";
+    std::string lampaDataDir = std::string(g_get_user_data_dir()) + "/lampa-browser";
     std::string oldDataDir = std::string(g_get_user_data_dir()) + "/blueprint";
-    if (!g_file_test(dataDir.c_str(), G_FILE_TEST_IS_DIR) && g_file_test(oldDataDir.c_str(), G_FILE_TEST_IS_DIR)) {
-        dataDir = oldDataDir;
+    if (!g_file_test(dataDir.c_str(), G_FILE_TEST_IS_DIR)) {
+        if (g_file_test(lampaDataDir.c_str(), G_FILE_TEST_IS_DIR)) {
+            dataDir = lampaDataDir;
+        } else if (g_file_test(oldDataDir.c_str(), G_FILE_TEST_IS_DIR)) {
+            dataDir = oldDataDir;
+        }
     }
     g_mkdir_with_parents(dataDir.c_str(), 0700);
     std::string cookiePath = dataDir + "/cookies.sqlite";
@@ -299,28 +345,30 @@ void WebTab::setupWebKitSignals() {
 }
 
 void WebTab::loadNewTabHtml() {
-    m_url = "lampa://newtab";
+    m_url = "lumen://newtab";
     m_title = "New Tab";
     m_isLoading = false;
     m_loadProgress = 1.0f;
-    webkit_web_view_load_html(WEBKIT_WEB_VIEW(m_webView), NEW_TAB_HTML, "lampa://newtab");
+    webkit_web_view_load_html(WEBKIT_WEB_VIEW(m_webView), NEW_TAB_HTML, "lumen://newtab");
     if (m_onTitleChange) m_onTitleChange(m_title);
     if (m_onUrlChange) m_onUrlChange(m_url);
     if (m_onProgressChange) m_onProgressChange(1.0f);
 }
 
 void WebTab::loadUrl(const std::string& url) {
-    if (url.empty() || url == "lampa://newtab" || url == "blueprint://newtab" || url == "about:blank") {
+    if (url.empty() || url == "lumen://newtab" || url == "lampa://newtab" || url == "blueprint://newtab" || url == "about:blank") {
         loadNewTabHtml();
         return;
     }
 
     std::string full = url;
     if (full.find("://") == std::string::npos && full.find("about:") != 0) {
-        if (full.find('.') != std::string::npos && full.find(' ') == std::string::npos)
+        if (full.find('.') != std::string::npos && full.find(' ') == std::string::npos) {
             full = "https://" + full;
-        else
-            full = "https://duckduckgo.com/?q=" + full;
+        } else {
+            std::string tmpl = Storage::Database::instance().getSetting("search_engine_template", "https://duckduckgo.com/?q=%s");
+            full = Core::BrowserConfig::formatSearchUrl(tmpl, full);
+        }
     }
 
     m_url = full;
@@ -350,12 +398,12 @@ void WebTab::goForward() {
 }
 
 bool WebTab::canReload() const {
-    return !m_url.empty() && m_url != "lampa://newtab" && m_url != "blueprint://newtab" && m_url != "about:blank";
+    return !m_url.empty() && m_url != "lumen://newtab" && m_url != "lampa://newtab" && m_url != "blueprint://newtab" && m_url != "about:blank";
 }
 
 void WebTab::reload() {
     if (!canReload()) {
-        // Internal page: do not attempt WebKit reload which causes network scheme errors
+        // internal lumen:// page, dont ask webkit to reload or it spits network errors
         return;
     }
     webkit_web_view_reload(WEBKIT_WEB_VIEW(m_webView));
@@ -389,7 +437,7 @@ void WebTab::handleScrollZoom(double dy) {
 
 bool WebTab::canClearData() const {
     if (m_loadFailed) return false;
-    if (m_url.empty() || m_url == "lampa://newtab" || m_url == "blueprint://newtab" || m_url == "about:blank") return false;
+    if (m_url.empty() || m_url == "lumen://newtab" || m_url == "lampa://newtab" || m_url == "blueprint://newtab" || m_url == "about:blank") return false;
     std::string host = extractHost(m_url);
     if (host.empty() || host == "newtab" || host.find('.') == std::string::npos) return false;
     return true;
@@ -422,22 +470,47 @@ void WebTab::fetchWebsiteData() {
             if (err) g_error_free(err);
 
             uint64_t total = 0;
+            bool foundSiteEntries = false;
             for (GList* l = list; l != nullptr; l = l->next) {
                 auto* data = static_cast<WebKitWebsiteData*>(l->data);
                 const char* dname = webkit_website_data_get_name(data);
                 if (dname) {
                     std::string dn(dname);
-                    if (ctx->host.find(dn) != std::string::npos || dn.find(ctx->host) != std::string::npos) {
-                        total += webkit_website_data_get_size(data, WEBKIT_WEBSITE_DATA_ALL);
+                    std::string h1 = ctx->host;
+                    std::string h2 = dn;
+                    if (!h1.empty() && h1[0] == '.') h1 = h1.substr(1);
+                    if (!h2.empty() && h2[0] == '.') h2 = h2.substr(1);
+                    if (h1.rfind("www.", 0) == 0) h1 = h1.substr(4);
+                    if (h2.rfind("www.", 0) == 0) h2 = h2.substr(4);
+
+                    if (h1 == h2 || h1.find(h2) != std::string::npos || h2.find(h1) != std::string::npos) {
+                        foundSiteEntries = true;
+                        uint64_t diskSize = webkit_website_data_get_size(data, WEBKIT_WEBSITE_DATA_DISK_CACHE);
+                        uint64_t memSize  = webkit_website_data_get_size(data, WEBKIT_WEBSITE_DATA_MEMORY_CACHE);
+                        uint64_t anySize  = webkit_website_data_get_size(data, WEBKIT_WEBSITE_DATA_ALL);
+                        total += std::max({diskSize, memSize, anySize});
                     }
                 }
             }
             if (list) {
                 g_list_free_full(list, reinterpret_cast<GDestroyNotify>(webkit_website_data_unref));
             }
+
+            // add cookie payload bytes from sqlite cookie jar
+            uint64_t cookieBytes = getCookieBytesForHost(ctx->host);
+            total += cookieBytes;
+
+            // if webkit has data records but returned 0 cache, add base storage footprint (e.g. localstorage)
+            if (foundSiteEntries && total == 0) {
+                total = 8192;
+            }
+
             if (ctx->tab) {
                 ctx->tab->m_siteDataBytes = total;
                 ctx->tab->m_siteDataKnown = true;
+                if (ctx->tab->m_onSiteDataChanged) {
+                    ctx->tab->m_onSiteDataChanged(total);
+                }
             }
             delete ctx;
         },
@@ -452,7 +525,7 @@ TlsCertificateInfo WebTab::getTlsInfo() const {
     if (m_loadFailed || !info.isHttps) {
         info.isValid = false;
         info.issuer = "";
-        info.protocol = info.isHttps ? "Не удалось подключиться" : "Незащищенный протокол (HTTP)";
+        info.protocol = info.isHttps ? "Connection failed" : "Insecure protocol (HTTP)";
         return info;
     }
 
@@ -479,14 +552,14 @@ TlsCertificateInfo WebTab::getTlsInfo() const {
 
     if (!info.isValid) {
         if (info.issuer.empty()) {
-            info.issuer = "Недоверенный сертификат";
+            info.issuer = "Untrusted certificate";
         }
-        info.protocol = "TLS (Незащищено)";
+        info.protocol = "TLS (Insecure)";
         return info;
     }
 
     if (info.issuer.empty()) {
-        info.issuer = "Доверенный центр сертификации";
+        info.issuer = "Trusted Certificate Authority";
     }
     info.protocol = "TLS 1.3 (AES-256-GCM)";
     return info;

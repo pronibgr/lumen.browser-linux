@@ -118,15 +118,15 @@ void TabStrip::update(float dt) {
         }
     }
 
-    // Smooth tab resize animation
+    // smooth tab resize animation (exponential decay)
     float resizeFactor = 1.0f - std::exp(-20.0f * dt);
     m_currentTabW += (m_targetTabW - m_currentTabW) * resizeFactor;
 
-    // Smooth scroll animation
+    // smooth horizontal scroll
     float scrollFactor = 1.0f - std::exp(-20.0f * dt);
     m_scrollOffset += (m_targetScrollOffset - m_scrollOffset) * scrollFactor;
 
-    // Smooth cursor animation (position and width)
+    // smooth indicator cursor gliding between tabs
     float cursorFactor = 1.0f - std::exp(-24.0f * dt);
     m_cursorX += (m_cursorTargetX - m_cursorX) * cursorFactor;
     m_cursorW += (m_cursorTargetW - m_cursorW) * cursorFactor;
@@ -140,7 +140,7 @@ void TabStrip::drawTab(cairo_t* cr, double x, double y, double w, double h,
 
     cairo_push_group(cr);
 
-    // Background
+    // tab body pill
     rr(cr, x, y, w, h, 7);
     if (active) {
         sc(cr, Theme::BG_ACTIVE);
@@ -151,12 +151,12 @@ void TabStrip::drawTab(cairo_t* cr, double x, double y, double w, double h,
     }
     cairo_fill_preserve(cr);
 
-    // Border
+    // subtle outline border
     sc(cr, Theme::BORDER_SOFT, active ? 0.7f : 0.3f);
     cairo_set_line_width(cr, 1.0);
     cairo_stroke(cr);
 
-    // Title text
+    // tab title text with ellipsize
     double textX = x + 10;
     double textW = w - 34;
     if (textW > 12) {
@@ -215,7 +215,7 @@ void TabStrip::draw(cairo_t* cr, double x, double y, double width, double height
 
     constexpr double GAP = 3.0;
 
-    // Recalculate max scroll based on total width
+    // recompute max scroll based on total tabs width
     double viewWidth = width - 36.0;
     double maxScroll = std::max(0.0, (m_currentTabW + GAP) * numTabs - GAP - viewWidth);
     m_maxScrollOffset = maxScroll;
@@ -225,7 +225,7 @@ void TabStrip::draw(cairo_t* cr, double x, double y, double width, double height
     double tabY = y + (height - Theme::TAB_HEIGHT) / 2.0;
     double curX = x - m_scrollOffset;
 
-    // Target position for the active tab cursor indicator
+    // target x pos for active tab cursor highlight
     m_cursorTargetX = curX + m_activeIndex * (curTabW + GAP);
     m_cursorTargetW = curTabW;
 
@@ -235,12 +235,12 @@ void TabStrip::draw(cairo_t* cr, double x, double y, double width, double height
         m_cursorInit = true;
     }
 
-    // Clip to strip visible area (excluding add button)
+    // clip tabs to strip area (leave room for + button on right)
     cairo_save(cr);
     cairo_rectangle(cr, x, y, viewWidth, height);
     cairo_clip(cr);
 
-    // Draw active tab indicator (the sliding cursor under the active tab)
+    // sliding active tab indicator
     if (m_cursorW >= 20.0) {
         rr(cr, m_cursorX, tabY, m_cursorW, Theme::TAB_HEIGHT, 7);
         sc(cr, Theme::BG_ACTIVE);
@@ -250,7 +250,7 @@ void TabStrip::draw(cairo_t* cr, double x, double y, double width, double height
         cairo_stroke(cr);
     }
 
-    // Draw all tabs
+    // draw each visible tab
     for (size_t i = 0; i < numTabs; ++i) {
         bool active  = (static_cast<int>(i) == m_activeIndex);
         bool hovered = (static_cast<int>(i) == m_hoveredIndex);
@@ -263,7 +263,7 @@ void TabStrip::draw(cairo_t* cr, double x, double y, double width, double height
 
         double tx = curX + i * (curTabW + GAP);
 
-        // Cull tabs completely outside visible window
+        // cull tabs completely outside visible window
         if (tx + curTabW < x - 10.0 || tx > x + viewWidth + 10.0) {
             continue;
         }
@@ -275,7 +275,7 @@ void TabStrip::draw(cairo_t* cr, double x, double y, double width, double height
 
     cairo_restore(cr); // restore clip
 
-    // ── Add Tab Button ─────────────────────────────────────────────────────────
+    // add tab button (+)
     double addX = x + width - 30;
     double addY = y + (height - 24.0) / 2.0;
     rr(cr, addX, addY, 24, 24, 6);
@@ -297,7 +297,7 @@ void TabStrip::draw(cairo_t* cr, double x, double y, double width, double height
     cairo_move_to(cr, plusCX - 5, plusCY); cairo_line_to(cr, plusCX + 5, plusCY);
     cairo_stroke(cr);
 
-    // Fade edges if scrollable
+    // fade out edges if scrollable
     if (m_scrollOffset > 2.0) {
         cairo_pattern_t* pat = cairo_pattern_create_linear(x, 0, x + 18, 0);
         cairo_pattern_add_color_stop_rgba(pat, 0, Theme::BG_SURFACE.r, Theme::BG_SURFACE.g, Theme::BG_SURFACE.b, 0.95);
@@ -333,14 +333,14 @@ bool TabStrip::handleMouseMove(double mx, double my) {
     m_hoveredCloseIndex = -1;
     m_hoveredAddButton = false;
 
-    // Check add button first
+    // check the add tab button (+) first
     double addX = m_lastX + m_lastW - 30;
     double addY = m_lastY + (m_lastH - 24.0) / 2.0;
     if (mx >= addX && mx <= addX + 24 && my >= addY && my <= addY + 24) {
         m_hoveredAddButton = true;
     }
 
-    // Strict bounds check: only test tabs if within visible strip bounds!
+    // only check tab bounds if within the visible strip
     if (mx >= m_lastX && mx <= m_lastX + viewWidth && my >= m_lastY && my <= m_lastY + m_lastH) {
         double curX = m_lastX - m_scrollOffset;
         for (size_t i = 0; i < n; ++i) {
@@ -361,7 +361,7 @@ bool TabStrip::handleMouseMove(double mx, double my) {
 
 bool TabStrip::handleMouseDown(double mx, double my, int button) {
     if (m_tabs.empty()) return false;
-    // Strict vertical bounds check: Tab strip only occupies Row 1
+    // tab strip is strictly in row 1
     if (my < 0.0 || my > Theme::ROW1_HEIGHT) return false;
 
     double viewWidth = m_lastW - 36.0;
@@ -371,9 +371,9 @@ bool TabStrip::handleMouseDown(double mx, double my, int button) {
         return true;
     }
 
-    // Only process tab clicks if within visible strip area
+    // handle clicks inside visible strip area
     if (mx >= m_lastX && mx <= m_lastX + viewWidth) {
-        // Detect tab under cursor directly if not cached
+        // find clicked tab if mousemoved too fast and cache missed
         int targetIdx = m_hoveredIndex;
         if (targetIdx < 0) {
             size_t n = m_tabs.size();
@@ -388,7 +388,7 @@ bool TabStrip::handleMouseDown(double mx, double my, int button) {
             }
         }
 
-        // Middle click: close tab under cursor
+        // middle click closes the tab under cursor
         if (button == 2 && targetIdx >= 0) {
             if (m_onClose) m_onClose(targetIdx);
             return true;

@@ -22,6 +22,8 @@ public:
     const std::string& getText() const { return m_text; }
 
     void setOnNavigate(std::function<void(const std::string&)> cb) { m_onNavigate = cb; }
+    void setSearchTemplate(const std::string& tmpl) { m_searchTemplate = tmpl; }
+    const std::string& getSearchTemplate() const { return m_searchTemplate; }
 
     void draw        (cairo_t* cr, double x, double y, double w, double h);
     void drawPopup   (cairo_t* cr, double x, double y, double w);
@@ -29,7 +31,7 @@ public:
     bool handleMouseMove(double mx, double my);
     bool handleMouseDown(double mx, double my);
     bool handleMouseUp  (double mx, double my);
-    bool handleKeyPress (uint32_t sym, uint16_t mod, const char* textInput);
+    bool handleKeyPress (uint32_t sym, uint32_t mod, const char* textInput);
 
     // Selection helpers
     bool hasSelection() const { return m_selStart >= 0 && m_selEnd >= 0 && m_selStart != m_selEnd; }
@@ -68,6 +70,7 @@ private:
     double m_popupY = 0, m_popupH = 0;
 
     std::function<void(const std::string&)> m_onNavigate;
+    std::string m_searchTemplate = "https://duckduckgo.com/?q=%s";
 
     int  xToCharIndex(double mouseX);
     void executeSelection();

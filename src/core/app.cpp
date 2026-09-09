@@ -22,18 +22,18 @@ bool Application::initialize(int argc, char* argv[]) {
 
     Storage::Database::instance().initialize();
 
-    g_set_prgname("lampa-browser");
-    g_set_application_name("lampa browser");
+    g_set_prgname("lumen-browser");
+    g_set_application_name("lumen browser");
 
     m_window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
     gtk_window_set_default_size(GTK_WINDOW(m_window), m_winW, m_winH);
-    gtk_window_set_title(GTK_WINDOW(m_window), "lampa browser");
+    gtk_window_set_title(GTK_WINDOW(m_window), "lumen browser");
     gtk_window_set_position(GTK_WINDOW(m_window), GTK_WIN_POS_CENTER);
     #pragma GCC diagnostic push
     #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-    gtk_window_set_wmclass(GTK_WINDOW(m_window), "lampa-browser", "lampa-browser");
+    gtk_window_set_wmclass(GTK_WINDOW(m_window), "lumen-browser", "lumen-browser");
     #pragma GCC diagnostic pop
-    gtk_window_set_icon_name(GTK_WINDOW(m_window), "lampa-browser");
+    gtk_window_set_icon_name(GTK_WINDOW(m_window), "lumen-browser");
 
     // Apply browser logo as window and taskbar icon (supports multi-size pixbufs)
     const char* iconCandidates[] = {
@@ -132,7 +132,7 @@ bool Application::initialize(int argc, char* argv[]) {
     // Topbar callbacks
     m_topbar.getTabStrip().setCallbacks(
         [this](int oldIdx, int newIdx) { switchTab(oldIdx, newIdx); },
-        [this]()         { createTab("lampa://newtab"); },
+        [this]()         { createTab("lumen://newtab"); },
         [this](int idx)  { closeTab(idx); }
     );
 
@@ -140,20 +140,21 @@ bool Application::initialize(int argc, char* argv[]) {
         navigateActiveTab(url);
     });
 
-    // When live exchange rates arrive asynchronously, refresh omnibox suggestions & redraw
+    // when live exchange rates arrive asynchronously, refresh omnibox suggestions & redraw
     Blueprint::Omnibox::UnitConverter::setOnRatesUpdated([this]() {
         g_idle_add(+[](gpointer data) -> gboolean {
             auto* app = static_cast<Application*>(data);
             if (app->m_topbar.getOmnibox().isFocused()) {
                 app->m_topbar.getOmnibox().updateSuggestions();
                 gtk_widget_queue_draw(app->m_topbarArea);
-                if (app->m_topbar.isAnyOverlayActive()) {
-                    gtk_widget_queue_draw(app->m_overlayArea);
-                }
+                gtk_widget_queue_draw(app->m_overlayArea);
             }
             return G_SOURCE_REMOVE;
         }, this);
     });
+
+    // kick off initial currency exchange fetch right away
+    Blueprint::Omnibox::UnitConverter::init();
 
     m_topbar.setOnBack([this]() {
         if (validActive()) { m_tabs[m_activeIdx]->goBack(); syncTopbar(); }
@@ -167,8 +168,13 @@ bool Application::initialize(int argc, char* argv[]) {
     m_topbar.setOnClearData([this]() {
         clearActiveSiteData();
     });
+    m_topbar.setOnRefreshSiteData([this]() {
+        if (validActive()) {
+            m_tabs[m_activeIdx]->fetchWebsiteData();
+        }
+    });
 
-    createTab("lampa://newtab");
+    createTab("lumen://newtab");
 
     // VSync-synchronized frame tick for native monitor refresh rates (60/120/144/240Hz)
     gtk_widget_add_tick_callback(m_window, +[](GtkWidget*, GdkFrameClock*, gpointer data) -> gboolean {
@@ -249,6 +255,13 @@ void Application::createTab(const std::string& url) {
         }
     );
 
+    tab->setOnSiteDataChanged([this, tab](uint64_t) {
+        if (validActive() && m_tabs[m_activeIdx] == tab) {
+            syncTopbar();
+            gtk_widget_queue_draw(m_topbarArea);
+        }
+    });
+
     int newIdx = static_cast<int>(m_tabs.size()) - 1;
     switchTab(m_activeIdx, newIdx);
 }
@@ -261,7 +274,7 @@ void Application::closeTab(int index) {
     m_tabs.erase(m_tabs.begin() + index);
 
     if (m_tabs.empty()) {
-        createTab("lampa://newtab");
+        createTab("lumen://newtab");
         return;
     }
 
@@ -466,79 +479,64 @@ gboolean Application::onWindowKeyPress(GtkWidget*, GdkEventKey* event, gpointer 
     bool ctrl = (event->state & GDK_CONTROL_MASK) != 0;
     bool shift = (event->state & GDK_SHIFT_MASK) != 0;
 
-    // 1. First priority: Global browser shortcuts (Tabs, Navigation, Zoom, Zen mode)
-    // These should ALWAYS work regardless of focus or active overlays (except when typing in omnibox for Ctrl+A/C/V/X)
+    // determine normalized latin key for shortcuts regardless of layout
+    guint latinKeyval = event->keyval;
     if (ctrl) {
-        // Ctrl + N or Ctrl + T: open new tab
-        if (event->keyval == GDK_KEY_n || event->keyval == GDK_KEY_N ||
-            event->keyval == GDK_KEY_t || event->keyval == GDK_KEY_T) {
-            self->createTab("lampa://newtab");
-            return TRUE;
-        }
-        // Ctrl + W: close active tab
-        if (event->keyval == GDK_KEY_w || event->keyval == GDK_KEY_W) {
-            self->closeTab(self->m_activeIdx);
-            return TRUE;
-        }
-        // Ctrl + L: focus omnibox & select all
-        if (event->keyval == GDK_KEY_l || event->keyval == GDK_KEY_L) {
-            self->m_topbar.getOmnibox().setFocused(true);
-            gtk_widget_queue_draw(self->m_topbarArea);
-            return TRUE;
-        }
-        // Ctrl + Tab: cycle tabs
-        if (event->keyval == GDK_KEY_Tab || event->keyval == GDK_KEY_ISO_Left_Tab) {
-            if (!self->m_tabs.empty()) {
-                int next = (self->m_activeIdx + 1) % static_cast<int>(self->m_tabs.size());
-                self->switchTab(self->m_activeIdx, next);
+        // hardware keycode direct fallback for standard pc keyboards
+        if (event->hardware_keycode == 38) latinKeyval = GDK_KEY_a;
+        else if (event->hardware_keycode == 54) latinKeyval = GDK_KEY_c;
+        else if (event->hardware_keycode == 55) latinKeyval = GDK_KEY_v;
+        else if (event->hardware_keycode == 53) latinKeyval = GDK_KEY_x;
+        else if (event->hardware_keycode == 52) latinKeyval = GDK_KEY_z;
+        else if (event->hardware_keycode == 22) latinKeyval = GDK_KEY_BackSpace;
+        else if (event->hardware_keycode == 17) latinKeyval = GDK_KEY_w;
+        else if (event->hardware_keycode == 28) latinKeyval = GDK_KEY_t;
+        else if (event->hardware_keycode == 57) latinKeyval = GDK_KEY_n;
+        else if (event->hardware_keycode == 46) latinKeyval = GDK_KEY_l;
+        else if (event->hardware_keycode == 27) latinKeyval = GDK_KEY_r;
+    }
+
+    GdkDisplay* display = gdk_display_get_default();
+    GdkKeymap* keymap = display ? gdk_keymap_get_for_display(display) : nullptr;
+    if (keymap) {
+        guint translated = 0;
+        if (gdk_keymap_translate_keyboard_state(
+                keymap,
+                event->hardware_keycode,
+                static_cast<GdkModifierType>(event->state),
+                0,
+                &translated,
+                nullptr, nullptr, nullptr)) {
+            if (translated != 0 && (translated < 0x0400 || translated > 0x06ff)) {
+                latinKeyval = translated;
             }
-            return TRUE;
-        }
-        // Zoom In: Ctrl + Plus / Ctrl + Equal / Ctrl + KP_Add
-        if (event->keyval == GDK_KEY_plus || event->keyval == GDK_KEY_equal || event->keyval == GDK_KEY_KP_Add) {
-            self->zoomIn();
-            return TRUE;
-        }
-        // Zoom Out: Ctrl + Minus / Ctrl + KP_Subtract
-        if (event->keyval == GDK_KEY_minus || event->keyval == GDK_KEY_KP_Subtract) {
-            self->zoomOut();
-            return TRUE;
-        }
-        // Reset Zoom: Ctrl + 0 / Ctrl + KP_0
-        if (event->keyval == GDK_KEY_0 || event->keyval == GDK_KEY_KP_0) {
-            self->resetZoom();
-            return TRUE;
         }
     }
 
-    // F11 Zen Mode toggle
-    if (event->keyval == GDK_KEY_F11) {
-        self->m_zenMode = !self->m_zenMode;
-        gtk_widget_set_visible(self->m_topbarArea, !self->m_zenMode);
+    uint32_t effectiveState = event->state | (ctrl ? 4 : 0);
+    guint keyToSend = ctrl ? latinKeyval : event->keyval;
+
+    // 1. settings overlay (has highest priority when open)
+    if (self->m_topbar.getSettings().isVisible()) {
+        if (self->m_topbar.handleKeyPress(keyToSend, effectiveState, event->string)) {
+            gtk_widget_queue_draw(self->m_overlayArea);
+            gtk_widget_queue_draw(self->m_topbarArea);
+            return TRUE;
+        }
+        return TRUE; // absorb all events while settings modal is open
+    }
+
+    // 2. clear site data / cert banner modals dismiss on escape
+    if (self->m_topbar.isAnyOverlayActive() && event->keyval == GDK_KEY_Escape) {
+        self->m_topbar.handleKeyPress(event->keyval, effectiveState, nullptr);
+        gtk_widget_queue_draw(self->m_overlayArea);
+        gtk_widget_queue_draw(self->m_topbarArea);
         return TRUE;
     }
 
-    // 2. Overlay handling (Settings panel, Certificate banner, Clear data modal)
-    // Exclude omnibox popup from intercepting normal typing / navigation
-    if (self->m_topbar.getSettings().isVisible() || self->m_topbar.isAnyOverlayActive()) {
-        if (event->keyval == GDK_KEY_Escape) {
-            self->m_topbar.handleKeyPress(event->keyval, event->state, nullptr);
-            gtk_widget_queue_draw(self->m_overlayArea);
-            gtk_widget_queue_draw(self->m_topbarArea);
-            return TRUE;
-        }
-        // Only route to settings if settings panel is open
-        if (self->m_topbar.getSettings().isVisible()) {
-            self->m_topbar.handleKeyPress(event->keyval, event->state, event->string);
-            gtk_widget_queue_draw(self->m_overlayArea);
-            gtk_widget_queue_draw(self->m_topbarArea);
-            return TRUE;
-        }
-    }
-
-    // 3. Omnibox handling when focused (text editing, navigation, selection, suggestions)
+    // 3. omnibox handling when focused (gets precedence for all editing and text shortcuts)
     if (self->m_topbar.getOmnibox().isFocused()) {
-        if (self->m_topbar.handleKeyPress(event->keyval, event->state, event->string)) {
+        if (self->m_topbar.handleKeyPress(keyToSend, effectiveState, event->string)) {
             gtk_widget_queue_draw(self->m_topbarArea);
             if (self->m_topbar.isAnyOverlayActive()) {
                 gtk_widget_queue_draw(self->m_overlayArea);
@@ -547,8 +545,60 @@ gboolean Application::onWindowKeyPress(GtkWidget*, GdkEventKey* event, gpointer 
         }
     }
 
-    // Reload: F5 or Ctrl + R (respects canReload, blocked on internal pages)
-    if (event->keyval == GDK_KEY_F5 || ((event->keyval == GDK_KEY_r || event->keyval == GDK_KEY_R) && ctrl)) {
+    // 4. browser global shortcuts
+    if (ctrl) {
+        guint k = latinKeyval;
+        // new tab shortcut
+        if (k == GDK_KEY_n || k == GDK_KEY_N ||
+            k == GDK_KEY_t || k == GDK_KEY_T) {
+            self->createTab("lumen://newtab");
+            return TRUE;
+        }
+        // close active tab
+        if (k == GDK_KEY_w || k == GDK_KEY_W) {
+            self->closeTab(self->m_activeIdx);
+            return TRUE;
+        }
+        // focus the url bar
+        if (k == GDK_KEY_l || k == GDK_KEY_L) {
+            self->m_topbar.getOmnibox().setFocused(true);
+            gtk_widget_queue_draw(self->m_topbarArea);
+            return TRUE;
+        }
+        // cycle tabs forward
+        if (event->keyval == GDK_KEY_Tab || event->keyval == GDK_KEY_ISO_Left_Tab) {
+            if (!self->m_tabs.empty()) {
+                int next = (self->m_activeIdx + 1) % static_cast<int>(self->m_tabs.size());
+                self->switchTab(self->m_activeIdx, next);
+            }
+            return TRUE;
+        }
+        // zoom in
+        if (k == GDK_KEY_plus || k == GDK_KEY_equal || k == GDK_KEY_KP_Add) {
+            self->zoomIn();
+            return TRUE;
+        }
+        // zoom out
+        if (k == GDK_KEY_minus || k == GDK_KEY_KP_Subtract) {
+            self->zoomOut();
+            return TRUE;
+        }
+        // reset zoom back to 100%
+        if (k == GDK_KEY_0 || k == GDK_KEY_KP_0) {
+            self->resetZoom();
+            return TRUE;
+        }
+    }
+
+    // zen mode fullscreen hide
+    if (event->keyval == GDK_KEY_F11) {
+        self->m_zenMode = !self->m_zenMode;
+        gtk_widget_set_visible(self->m_topbarArea, !self->m_zenMode);
+        return TRUE;
+    }
+
+    // reload: F5 or Ctrl + R (respects canReload, blocked on internal pages)
+    if (event->keyval == GDK_KEY_F5 || ((latinKeyval == GDK_KEY_r || latinKeyval == GDK_KEY_R) && ctrl)) {
         if (self->validActive()) {
             auto tab = self->m_tabs[self->m_activeIdx];
             if (tab && tab->canReload()) {

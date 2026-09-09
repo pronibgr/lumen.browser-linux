@@ -987,4 +987,7 @@ CMakeFiles/blueprint_browser.dir/src/engine/web_tab.cpp.o: \
  /usr/include/openssl/conf.h /usr/include/openssl/conferr.h \
  /usr/include/openssl/conftypes.h /usr/include/openssl/pem.h \
  /usr/include/openssl/pemerr.h /usr/include/openssl/x509v3.h \
- /usr/include/openssl/x509v3err.h
+ /usr/include/openssl/x509v3err.h /usr/include/sqlite3.h \
+ /home/elliot/Проекты/Blueprint\ Browser/src/storage/database.hpp \
+ /home/elliot/Проекты/Blueprint\ Browser/src/omnibox/fuzzy_search.hpp \
+ /home/elliot/Проекты/Blueprint\ Browser/src/core/config.hpp

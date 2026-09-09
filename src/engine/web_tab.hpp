@@ -18,7 +18,7 @@ struct TlsCertificateInfo {
 
 class WebTab {
 public:
-    WebTab(int id, const std::string& url = "lampa://newtab", const std::string& title = "New Tab");
+    WebTab(int id, const std::string& url = "lumen://newtab", const std::string& title = "New Tab");
     ~WebTab();
 
     int  getId()   const { return m_id; }
@@ -70,6 +70,9 @@ public:
                       std::function<void(const std::string& url)> onUrl,
                       std::function<void(float progress)> onProgress);
 
+    // callback when site storage size finishes fetching
+    void setOnSiteDataChanged(std::function<void(uint64_t bytes)> cb) { m_onSiteDataChanged = cb; }
+
 private:
     int  m_id = 0;
     std::string m_url;
@@ -89,6 +92,7 @@ private:
     std::function<void(const std::string&)> m_onTitleChange;
     std::function<void(const std::string&)> m_onUrlChange;
     std::function<void(float)>              m_onProgressChange;
+    std::function<void(uint64_t)>           m_onSiteDataChanged;
 
     void setupWebKitSignals();
     void loadNewTabHtml();

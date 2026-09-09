@@ -45,7 +45,7 @@ private:
     std::chrono::steady_clock::time_point m_lastUpdateTime;
     bool m_hasLastUpdateTime = false;
 
-    void createTab(const std::string& url = "lampa://newtab");
+    void createTab(const std::string& url = "lumen://newtab");
     void closeTab(int index);
     void switchTab(int oldIdx, int newIdx);
     void navigateActiveTab(const std::string& url);

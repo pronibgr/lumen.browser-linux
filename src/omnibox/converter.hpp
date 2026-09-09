@@ -18,6 +18,9 @@ struct ConversionResult {
 
 class UnitConverter {
 public:
+    // start background fetch early so user doesn't wait
+    static void init();
+    static void refreshRates();
     static std::optional<ConversionResult> convert(const std::string& query);
     static void setOnRatesUpdated(std::function<void()> cb);
 };

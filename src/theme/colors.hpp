@@ -1,10 +1,13 @@
 #pragma once
 #include <cstdint>
+#include <string>
+#include <vector>
 
 namespace Blueprint::Theme {
 
 struct Color {
     float r = 0.0f, g = 0.0f, b = 0.0f, a = 1.0f;
+
     static constexpr Color fromHex(uint32_t hex, float alpha = 1.0f) {
         return Color{
             ((hex >> 16) & 0xFF) / 255.0f,
@@ -13,22 +16,100 @@ struct Color {
             alpha
         };
     }
+
+    bool operator==(const Color& o) const {
+        return r == o.r && g == o.g && b == o.b && a == o.a;
+    }
 };
 
-// ── Deep Obsidian ─────────────────────────────────────────────────────────────
-inline constexpr Color BG_ABYSS     = Color::fromHex(0x0E1116);
-inline constexpr Color BG_SURFACE   = Color::fromHex(0x151A21);
-inline constexpr Color BG_SUBTLE    = Color::fromHex(0x1D232C);
-inline constexpr Color BG_ACTIVE    = Color::fromHex(0x28313D);
-inline constexpr Color BG_POPUP     = Color::fromHex(0x19202A);
-inline constexpr Color BORDER_SOFT  = Color::fromHex(0x2D3745);
-inline constexpr Color BORDER_FOCUS = Color::fromHex(0x4A6080);
-inline constexpr Color TEXT_MAIN    = Color::fromHex(0xC2CBD6);
-inline constexpr Color TEXT_MUTED   = Color::fromHex(0x6C798C);
-inline constexpr Color TEXT_DIM     = Color::fromHex(0x3D4A5C);
-inline constexpr Color ACCENT_CALM  = Color::fromHex(0x5EEAD4);
-inline constexpr Color ACCENT_DIM   = Color::fromHex(0x2A6B62);
-inline constexpr Color DANGER       = Color::fromHex(0xE05060);
+enum class ThemeId {
+    NOCTILUCA = 0,
+    MORION    = 1,
+    CALCITE   = 2,
+    RIME      = 3
+};
+
+struct Palette {
+    ThemeId     id;
+    std::string name;        // "noctiluca", "morion", "calcite", "rime"
+    std::string displayName; // "noctiluca", "morion", "calcite", "rime"
+    std::string description; // subtitle / aesthetic note
+    bool        isDark;
+
+    // exact color values specified by user
+    Color bgBase;
+    Color bgSurface;
+    Color border;
+    Color textPrimary;
+    Color accent;
+    Color textMuted;
+
+    // derived shades for smooth full-browser consistency
+    Color bgSubtle;
+    Color bgActive;
+    Color bgPopup;
+    Color borderFocus;
+    Color textDim;
+    Color accentDim;
+    Color danger;
+};
+
+// live dynamic colors exported globally across the browser
+// draw calls referencing these will dynamically reflect animated theme transitions
+extern Color BG_ABYSS;
+extern Color BG_SURFACE;
+extern Color BG_SUBTLE;
+extern Color BG_ACTIVE;
+extern Color BG_POPUP;
+extern Color BORDER_SOFT;
+extern Color BORDER_FOCUS;
+extern Color TEXT_MAIN;
+extern Color TEXT_MUTED;
+extern Color TEXT_DIM;
+extern Color ACCENT_CALM;
+extern Color ACCENT_DIM;
+extern Color DANGER;
+
+// theme management and smooth color interpolation engine
+class ThemeManager {
+public:
+    static ThemeManager& instance();
+
+    void init();
+    void update(float dt);
+    bool wantsRedraw() const { return m_animating; }
+
+    ThemeId currentTheme() const { return m_currentTheme; }
+    const Palette& activePalette() const { return getPalette(m_currentTheme); }
+    const Palette& getPalette(ThemeId id) const;
+    const std::vector<Palette>& allPalettes() const { return m_palettes; }
+
+    void setTheme(ThemeId id, bool animated = true);
+    void setThemeByName(const std::string& name, bool animated = true);
+
+    static bool isNightTime();
+    static bool isNightTimeForHour(int hour) {
+        return (hour >= 20 || hour < 8);
+    }
+    static bool isLightTheme(ThemeId id) {
+        return id == ThemeId::CALCITE || id == ThemeId::RIME;
+    }
+
+private:
+    ThemeManager();
+    void applyPaletteDirect(const Palette& p);
+    void captureCurrentColors(Palette& p) const;
+
+    std::vector<Palette> m_palettes;
+    ThemeId m_currentTheme = ThemeId::NOCTILUCA;
+
+    bool m_animating = false;
+    float m_animProgress = 1.0f;
+    float m_animDuration = 0.35f; // 350ms smooth transition
+    Palette m_animFrom;
+    Palette m_animTo;
+    bool m_initialized = false;
+};
 
 // ── Geometry ──────────────────────────────────────────────────────────────────
 inline constexpr float RADIUS_MENU   = 10.0f;

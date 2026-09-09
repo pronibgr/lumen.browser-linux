@@ -8,6 +8,10 @@ namespace Blueprint::Storage {
 
 Database& Database::instance() {
     static Database db;
+    // auto-open profile db on first access if needed
+    if (!db.m_db) {
+        db.initialize();
+    }
     return db;
 }
 
@@ -19,14 +23,19 @@ std::string Database::getDatabasePath() {
     const char* home = std::getenv("HOME");
     std::filesystem::path configDir;
     if (home) {
-        configDir = std::filesystem::path(home) / ".config" / "lampa-browser";
-        std::filesystem::path oldDir = std::filesystem::path(home) / ".config" / "blueprint-browser";
-        if (!std::filesystem::exists(configDir) && std::filesystem::exists(oldDir)) {
+        configDir = std::filesystem::path(home) / ".config" / "lumen-browser";
+        std::filesystem::path lampaDir = std::filesystem::path(home) / ".config" / "lampa-browser";
+        std::filesystem::path blueprintDir = std::filesystem::path(home) / ".config" / "blueprint-browser";
+        if (!std::filesystem::exists(configDir)) {
             std::error_code ec;
-            std::filesystem::copy(oldDir, configDir, std::filesystem::copy_options::recursive, ec);
+            if (std::filesystem::exists(lampaDir)) {
+                std::filesystem::copy(lampaDir, configDir, std::filesystem::copy_options::recursive, ec);
+            } else if (std::filesystem::exists(blueprintDir)) {
+                std::filesystem::copy(blueprintDir, configDir, std::filesystem::copy_options::recursive, ec);
+            }
         }
     } else {
-        configDir = "./.lampa-browser";
+        configDir = "./.lumen-browser";
     }
     std::filesystem::create_directories(configDir);
     return (configDir / "profile.db").string();
@@ -89,7 +98,7 @@ void Database::close() {
 
 bool Database::addHistory(const std::string& url, const std::string& title) {
     if (!m_db || url.empty()) return false;
-    if (url == "lampa://newtab" || url == "blueprint://newtab" || url == "about:blank") return false;
+    if (url == "lumen://newtab" || url == "lampa://newtab" || url == "blueprint://newtab" || url == "about:blank") return false;
 
     auto now = std::chrono::duration_cast<std::chrono::seconds>(
         std::chrono::system_clock::now().time_since_epoch()).count();

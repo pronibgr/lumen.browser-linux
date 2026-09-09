@@ -8,6 +8,7 @@ public:
     NeonProgress() = default;
 
     void setProgress(float progress);
+    float getProgress() const { return m_currentProgress; }
     void setVisible(bool visible) { m_visible = visible; }
     bool isVisible() const { return m_visible; }
     bool wantsRedraw() const;

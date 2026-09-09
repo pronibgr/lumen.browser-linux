@@ -212,6 +212,7 @@ CMakeFiles/unit_tests.dir/tests/unit_tests.cpp.o: \
  /usr/include/c++/16/bits/ranges_algobase.h \
  /usr/include/c++/16/bits/unicode.h \
  /usr/include/c++/16/bits/unicode-data.h \
+ /home/elliot/Проекты/Blueprint\ Browser/src/core/config.hpp \
  /home/elliot/Проекты/Blueprint\ Browser/src/ui/omnibox.hpp \
  /usr/include/cairo/cairo.h /usr/include/cairo/cairo-version.h \
  /usr/include/cairo/cairo-features.h \
@@ -1006,4 +1007,9 @@ CMakeFiles/unit_tests.dir/tests/unit_tests.cpp.o: \
  /usr/include/webkitgtk-4.1/webkit/WebKitWebsiteDataAccessPermissionRequest.h \
  /usr/include/webkitgtk-4.1/webkit/WebKitXRPermissionRequest.h \
  /usr/include/webkitgtk-4.1/webkit/WebKitAutocleanups.h \
- /home/elliot/Проекты/Blueprint\ Browser/src/ui/neon_progress.hpp
+ /home/elliot/Проекты/Blueprint\ Browser/src/ui/neon_progress.hpp \
+ /usr/include/SDL2/SDL_keycode.h /usr/include/SDL2/SDL_stdinc.h \
+ /usr/include/SDL2/SDL_config.h /usr/include/SDL2/SDL_platform.h \
+ /usr/include/SDL2/begin_code.h /usr/include/SDL2/close_code.h \
+ /usr/include/SDL2/SDL_config_unix.h /usr/include/c++/16/math.h \
+ /usr/include/SDL2/SDL_scancode.h

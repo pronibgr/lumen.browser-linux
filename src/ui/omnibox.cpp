@@ -5,6 +5,7 @@
 #endif
 #include "ui/omnibox.hpp"
 #include "theme/colors.hpp"
+#include "core/config.hpp"
 #include "omnibox/calc_parser.hpp"
 #include "omnibox/converter.hpp"
 #include "storage/database.hpp"
@@ -91,9 +92,9 @@ int OmniboxWidget::xToCharIndex(double mouseX) {
 
 void OmniboxWidget::setText(const std::string& url) {
     m_displayUrl = url;
-    // ONLY update m_text when not focused to avoid clobbering user input
+    // only update text when unfocused so we dont overwrite what user is typing
     if (!m_focused) {
-        // Show clean URL in edit field
+        // show clean url in edit field
         bool isBlank = (url.empty() || url == "about:blank");
         m_text = isBlank ? "" : url;
         m_cursorPos = static_cast<int>(m_text.length());
@@ -105,7 +106,7 @@ void OmniboxWidget::setFocused(bool focused) {
     if (m_focused == focused) return;
     m_focused = focused;
     if (m_focused) {
-        // On focus: pre-fill with the current URL and select all
+        // on focus: pre-fill with current url and select everything
         bool isBlank = (m_displayUrl.empty() || m_displayUrl == "about:blank");
         m_text = isBlank ? "" : m_displayUrl;
         m_cursorPos = static_cast<int>(m_text.length());
@@ -127,20 +128,20 @@ void OmniboxWidget::updateSuggestions() {
     m_suggestions.clear();
     m_selectedSuggestion = -1;
 
-    if (m_text.empty() || m_text == "lampa://newtab" || m_text == "blueprint://newtab") {
+    if (m_text.empty() || m_text == "lumen://newtab" || m_text == "lampa://newtab" || m_text == "blueprint://newtab") {
         auto recent = Storage::Database::instance().getRecentHistory(6);
         for (const auto& h : recent)
             m_suggestions.push_back({h.title, h.url, "history", 0});
         return;
     }
 
-    // Calculator
+    // quick math solver
     auto calc = Omnibox::Calculator::evaluate(m_text);
     if (calc.has_value()) {
         std::string s = "= " + Omnibox::Calculator::formatResult(calc.value());
         m_suggestions.push_back({s, m_text, "calc", 2000});
     }
-    // Unit converter
+    // unit & currency converter
     auto conv = Omnibox::UnitConverter::convert(m_text);
     if (conv.has_value()) {
         Omnibox::SearchItem item{conv->formatted, m_text, "conv", 1900};
@@ -149,44 +150,45 @@ void OmniboxWidget::updateSuggestions() {
         m_suggestions.push_back(item);
     }
 
-    // History
+    // local history lookup
     auto hist = Storage::Database::instance().searchHistory(m_text, 5);
     for (const auto& h : hist)
         m_suggestions.push_back(h);
 
-    // URL or search fallback
+    // url or search fallback
     bool looksUrl = (m_text.find('.') != std::string::npos && m_text.find(' ') == std::string::npos)
                  || m_text.find("http") == 0 || m_text.find("localhost") == 0
-                 || m_text.find("lampa://") == 0 || m_text.find("://") != std::string::npos
+                 || m_text.find("lumen://") == 0 || m_text.find("lampa://") == 0 || m_text.find("://") != std::string::npos
                  || m_text.find("about:") == 0;
     if (looksUrl) {
         std::string full = (m_text.find("://") == std::string::npos && m_text.find("about:") != 0) ? "https://" + m_text : m_text;
         m_suggestions.push_back({"Go to: " + full, full, "url", 500});
     } else if (!calc.has_value() && !conv.has_value()) {
-        m_suggestions.push_back({"Search: " + m_text, "https://duckduckgo.com/?q=" + m_text, "web", 100});
+        std::string searchUrl = Core::BrowserConfig::formatSearchUrl(m_searchTemplate, m_text);
+        m_suggestions.push_back({"Search: " + m_text, searchUrl, "web", 100});
     }
 }
 
 void OmniboxWidget::draw(cairo_t* cr, double x, double y, double w, double h) {
     m_lastX = x; m_lastY = y; m_lastW = w; m_lastH = h;
 
-    // Background
+    // background box
     rr(cr, x, y, w, h, 6);
     sc(cr, m_focused ? Theme::BG_ACTIVE : Theme::BG_SUBTLE);
     cairo_fill_preserve(cr);
 
-    // Border — use stroke ONLY (no extra path leftover)
+    // border (stroke only, no dangling paths)
     if (m_focused) { sc(cr, Theme::ACCENT_CALM, 0.5f); cairo_set_line_width(cr, 1.5); }
     else           { sc(cr, Theme::BORDER_SOFT, 0.6f); cairo_set_line_width(cr, 1.0); }
     cairo_stroke(cr);
 
-    // Lead icon is the Lock Icon drawn in topbar Row 2
+    // lock icon drawn separately in topbar row 2
 
-    // Decide what text to show
+    // decide what text to show
     std::string rawText;
     bool isPlaceholder = false;
     if (m_focused) {
-        rawText = m_text; // always show editable text when focused
+        rawText = m_text; // always show raw editable text when focused
     } else {
         bool isBlank = (m_displayUrl.empty() || m_displayUrl == "about:blank");
         if (isBlank) {
@@ -265,12 +267,12 @@ void OmniboxWidget::drawPopup(cairo_t* cr, double x, double y, double w) {
     double popupH = static_cast<double>(maxItems) * itemH + 8.0;
     m_popupY = y; m_popupH = popupH;
 
-    // Shadow
+    // popup shadow
     rr(cr, x + 3, y + 3, w, popupH, 8);
     cairo_set_source_rgba(cr, 0, 0, 0, 0.35);
     cairo_fill(cr);
 
-    // Panel
+    // panel card
     rr(cr, x, y, w, popupH, 8);
     sc(cr, Theme::BG_POPUP);
     cairo_fill_preserve(cr);
@@ -298,7 +300,7 @@ void OmniboxWidget::drawPopup(cairo_t* cr, double x, double y, double w) {
             cairo_fill(cr);
         }
 
-        // Draw clean vector icons (replacing bracket tags)
+        // draw crisp vector icons for suggestions
         double ix = x + 24.0;
         double iy = curY + itemH / 2.0;
 
@@ -306,7 +308,7 @@ void OmniboxWidget::drawPopup(cairo_t* cr, double x, double y, double w) {
         cairo_set_line_join(cr, CAIRO_LINE_JOIN_ROUND);
 
         if (item.category == "web") {
-            // Magnifying glass (Лупа для поискового запроса)
+            // search glass icon
             sc(cr, sel ? Theme::ACCENT_CALM : Theme::TEXT_MUTED, 0.9f);
             cairo_set_line_width(cr, 1.4);
             cairo_new_path(cr);
@@ -316,17 +318,17 @@ void OmniboxWidget::drawPopup(cairo_t* cr, double x, double y, double w) {
             cairo_line_to(cr, ix + 5.5, iy + 5.5);
             cairo_stroke(cr);
         } else if (item.category == "url") {
-            // Internet globe (Иконка интернета для перехода по ссылкам)
+            // world globe for web links
             sc(cr, sel ? Theme::ACCENT_CALM : Theme::TEXT_MUTED, 0.9f);
             cairo_set_line_width(cr, 1.3);
             cairo_new_path(cr);
             cairo_arc(cr, ix, iy, 5.5, 0, 2 * M_PI);
             cairo_stroke(cr);
-            // Equator
+            // equator
             cairo_move_to(cr, ix - 5.5, iy);
             cairo_line_to(cr, ix + 5.5, iy);
             cairo_stroke(cr);
-            // Longitude curves
+            // meridians
             cairo_move_to(cr, ix, iy - 5.5);
             cairo_curve_to(cr, ix - 2.8, iy - 2.0, ix - 2.8, iy + 2.0, ix, iy + 5.5);
             cairo_stroke(cr);
@@ -334,19 +336,19 @@ void OmniboxWidget::drawPopup(cairo_t* cr, double x, double y, double w) {
             cairo_curve_to(cr, ix + 2.8, iy - 2.0, ix + 2.8, iy + 2.0, ix, iy + 5.5);
             cairo_stroke(cr);
         } else if (item.category == "history") {
-            // Clock (Часы для истории - сброс пути устраняет паразитные линии от Pango)
+            // clock face for history items
             sc(cr, sel ? Theme::ACCENT_CALM : Theme::TEXT_MUTED, 0.9f);
             cairo_set_line_width(cr, 1.3);
             cairo_new_path(cr);
             cairo_arc(cr, ix, iy, 5.5, 0, 2 * M_PI);
             cairo_stroke(cr);
-            // Clock hands
+            // clock hands
             cairo_move_to(cr, ix, iy - 3.2);
             cairo_line_to(cr, ix, iy);
             cairo_line_to(cr, ix + 2.6, iy);
             cairo_stroke(cr);
         } else {
-            // Dollar badge ($) for currency conversion and calculation
+            // dollar badge for calculations and currency results
             sc(cr, sel ? Theme::ACCENT_CALM : Theme::TEXT_MUTED, 0.95f);
             cairo_set_line_width(cr, 1.4);
             cairo_new_path(cr);
@@ -372,37 +374,52 @@ void OmniboxWidget::drawPopup(cairo_t* cr, double x, double y, double w) {
         cairo_move_to(cr, textDrawX, textDrawY);
         pango_cairo_show_layout(cr, lText);
 
-        // Offline currency indicator: crossed-out globe icon after conversion result
-        if (item.isCurrency && !item.isLive) {
+        // currency indicator: crossed-out globe if offline, vibrant emerald badge if live
+        if (item.isCurrency) {
             double gx = textDrawX + tw + 14.0;
             double gy = curY + itemH / 2.0;
 
-            // Globe outline & meridians (muted / subtle warning tone)
-            sc(cr, Theme::TEXT_MUTED, 0.75f);
-            cairo_set_line_width(cr, 1.2);
-            cairo_new_path(cr);
-            cairo_arc(cr, gx, gy, 5.2, 0, 2 * M_PI);
-            cairo_stroke(cr);
-            // Equator
-            cairo_move_to(cr, gx - 5.2, gy);
-            cairo_line_to(cr, gx + 5.2, gy);
-            cairo_stroke(cr);
-            // Longitude curves
-            cairo_move_to(cr, gx, gy - 5.2);
-            cairo_curve_to(cr, gx - 2.5, gy - 1.8, gx - 2.5, gy + 1.8, gx, gy + 5.2);
-            cairo_stroke(cr);
-            cairo_move_to(cr, gx, gy - 5.2);
-            cairo_curve_to(cr, gx + 2.5, gy - 1.8, gx + 2.5, gy + 1.8, gx, gy + 5.2);
-            cairo_stroke(cr);
+            if (!item.isLive) {
+                // globe outline & meridians (muted warning tone)
+                sc(cr, Theme::TEXT_MUTED, 0.75f);
+                cairo_set_line_width(cr, 1.2);
+                cairo_new_path(cr);
+                cairo_arc(cr, gx, gy, 5.2, 0, 2 * M_PI);
+                cairo_stroke(cr);
+                // equator
+                cairo_move_to(cr, gx - 5.2, gy);
+                cairo_line_to(cr, gx + 5.2, gy);
+                cairo_stroke(cr);
+                // longitude curves
+                cairo_move_to(cr, gx, gy - 5.2);
+                cairo_curve_to(cr, gx - 2.5, gy - 1.8, gx - 2.5, gy + 1.8, gx, gy + 5.2);
+                cairo_stroke(cr);
+                cairo_move_to(cr, gx, gy - 5.2);
+                cairo_curve_to(cr, gx + 2.5, gy - 1.8, gx + 2.5, gy + 1.8, gx, gy + 5.2);
+                cairo_stroke(cr);
 
-            // Clean diagonal cross-out line through the globe
-            Theme::Color strikeCol{0.92f, 0.40f, 0.35f, 0.9f}; // Soft coral/red
-            sc(cr, strikeCol);
-            cairo_set_line_width(cr, 1.5);
-            cairo_new_path(cr);
-            cairo_move_to(cr, gx - 5.8, gy - 5.8);
-            cairo_line_to(cr, gx + 5.8, gy + 5.8);
-            cairo_stroke(cr);
+                // clean diagonal cross-out line through the globe
+                Theme::Color strikeCol{0.92f, 0.40f, 0.35f, 0.9f}; // soft coral/red
+                sc(cr, strikeCol);
+                cairo_set_line_width(cr, 1.5);
+                cairo_new_path(cr);
+                cairo_move_to(cr, gx - 5.8, gy - 5.8);
+                cairo_line_to(cr, gx + 5.8, gy + 5.8);
+                cairo_stroke(cr);
+            } else {
+                // live rate indicator: emerald green dot with subtle glow aura
+                Theme::Color liveCol{0.20f, 0.85f, 0.50f, 0.95f};
+                sc(cr, liveCol);
+                cairo_new_path(cr);
+                cairo_arc(cr, gx, gy, 3.2, 0, 2 * M_PI);
+                cairo_fill(cr);
+
+                sc(cr, liveCol, 0.28f);
+                cairo_set_line_width(cr, 1.4);
+                cairo_new_path(cr);
+                cairo_arc(cr, gx, gy, 5.4, 0, 2 * M_PI);
+                cairo_stroke(cr);
+            }
         }
 
         curY += itemH;
@@ -424,94 +441,134 @@ void OmniboxWidget::executeSelection() {
             if (target.find('.') != std::string::npos && target.find(' ') == std::string::npos)
                 target = "https://" + target;
             else
-                target = "https://duckduckgo.com/?q=" + target;
+                target = Core::BrowserConfig::formatSearchUrl(m_searchTemplate, target);
         }
         m_onNavigate(target);
     }
 }
 
-bool OmniboxWidget::handleKeyPress(uint32_t sym, uint16_t mod, const char* textInput) {
+bool OmniboxWidget::handleKeyPress(uint32_t sym, uint32_t mod, const char* textInput) {
     if (!m_focused) return false;
 
-    bool isCtrl = (mod & 4) || (mod & 0x40) || (SDL_GetModState() & KMOD_CTRL);
+    bool isCtrl = (mod & 4) != 0 || (mod & 0x40) != 0 || (SDL_GetModState() & KMOD_CTRL);
 
-    // Enter
+    // enter to navigate or run search
     if (sym == 0xff0d || sym == 0xff8d || sym == SDLK_RETURN || sym == SDLK_KP_ENTER || sym == 13) {
         executeSelection();
         return true;
     }
-    // Escape
+    // escape to dismiss
     if (sym == 0xff1b || sym == SDLK_ESCAPE || sym == 27) {
         setFocused(false);
         return true;
     }
-    // Down
+    // down arrow through suggestions
     if ((sym == 0xff54 || sym == 0xff99 || sym == SDLK_DOWN) && !m_suggestions.empty()) {
         m_selectedSuggestion = (m_selectedSuggestion + 1) % static_cast<int>(m_suggestions.size());
         return true;
     }
-    // Up
+    // up arrow
     if ((sym == 0xff52 || sym == 0xff97 || sym == SDLK_UP) && !m_suggestions.empty()) {
         m_selectedSuggestion = (m_selectedSuggestion - 1 + static_cast<int>(m_suggestions.size()))
                                 % static_cast<int>(m_suggestions.size());
         return true;
     }
 
-    // Ctrl+A (Select All)
-    if ((sym == 'a' || sym == 'A' || sym == 0x0061 || sym == 0x0041) && isCtrl) {
+    // support shortcuts under both standard latin and cyrillic / russian keymaps
+    bool isKeyA = (sym == 'a' || sym == 'A' || sym == 0x0061 || sym == 0x0041 ||
+                   sym == 0x06c6 || sym == 0x06e6 || sym == 0x0444 || sym == 0x0424);
+    bool isKeyC = (sym == 'c' || sym == 'C' || sym == 0x0063 || sym == 0x0043 ||
+                   sym == 0x06d3 || sym == 0x06f3 || sym == 0x0441 || sym == 0x0421);
+    bool isKeyV = (sym == 'v' || sym == 'V' || sym == 0x0076 || sym == 0x0056 ||
+                   sym == 0x06cd || sym == 0x06ed || sym == 0x043c || sym == 0x041c);
+    bool isKeyX = (sym == 'x' || sym == 'X' || sym == 0x0078 || sym == 0x0058 ||
+                   sym == 0x06de || sym == 0x06fe || sym == 0x0447 || sym == 0x0427);
+    bool isKeyBksp = (sym == 0xff08 || sym == 0xff9f || sym == SDLK_BACKSPACE || sym == 8 || sym == 127);
+
+    // ctrl+a: select all text
+    if (isKeyA && isCtrl) {
         selectAll();
         return true;
     }
 
-    // Ctrl+C (Copy)
-    if ((sym == 'c' || sym == 'C' || sym == 0x0063 || sym == 0x0043) && isCtrl) {
+    // ctrl+c: copy
+    if (isKeyC && isCtrl) {
         if (hasSelection()) {
-            GtkClipboard* clip = gtk_clipboard_get(GDK_SELECTION_CLIPBOARD);
-            std::string sel = getSelectedText();
-            gtk_clipboard_set_text(clip, sel.c_str(), static_cast<gint>(sel.length()));
+            GdkDisplay* disp = gdk_display_get_default();
+            if (disp) {
+                GtkClipboard* clip = gtk_clipboard_get_for_display(disp, GDK_SELECTION_CLIPBOARD);
+                if (clip) {
+                    std::string sel = getSelectedText();
+                    gtk_clipboard_set_text(clip, sel.c_str(), static_cast<gint>(sel.length()));
+                }
+            }
         }
         return true;
     }
 
-    // Ctrl+X (Cut)
-    if ((sym == 'x' || sym == 'X' || sym == 0x0078 || sym == 0x0058) && isCtrl) {
+    // ctrl+x: cut
+    if (isKeyX && isCtrl) {
         if (hasSelection()) {
-            GtkClipboard* clip = gtk_clipboard_get(GDK_SELECTION_CLIPBOARD);
-            std::string sel = getSelectedText();
-            gtk_clipboard_set_text(clip, sel.c_str(), static_cast<gint>(sel.length()));
+            GdkDisplay* disp = gdk_display_get_default();
+            if (disp) {
+                GtkClipboard* clip = gtk_clipboard_get_for_display(disp, GDK_SELECTION_CLIPBOARD);
+                if (clip) {
+                    std::string sel = getSelectedText();
+                    gtk_clipboard_set_text(clip, sel.c_str(), static_cast<gint>(sel.length()));
+                }
+            }
             deleteSelection();
             updateSuggestions();
         }
         return true;
     }
 
-    // Ctrl+V (Paste)
-    if ((sym == 'v' || sym == 'V' || sym == 0x0076 || sym == 0x0056) && isCtrl) {
-        GtkClipboard* clip = gtk_clipboard_get(GDK_SELECTION_CLIPBOARD);
-        gchar* text = gtk_clipboard_wait_for_text(clip);
-        if (text) {
-            if (hasSelection()) deleteSelection();
-            std::string s(text);
-            s.erase(std::remove(s.begin(), s.end(), '\r'), s.end());
-            s.erase(std::remove(s.begin(), s.end(), '\n'), s.end());
-            m_text.insert(m_cursorPos, s);
-            m_cursorPos += static_cast<int>(s.length());
-            clearSelection();
-            updateSuggestions();
-            g_free(text);
+    // ctrl+v: paste
+    if (isKeyV && isCtrl) {
+        GdkDisplay* disp = gdk_display_get_default();
+        if (disp) {
+            GtkClipboard* clip = gtk_clipboard_get_for_display(disp, GDK_SELECTION_CLIPBOARD);
+            if (clip) {
+                gchar* text = gtk_clipboard_wait_for_text(clip);
+                if (text) {
+                    if (hasSelection()) deleteSelection();
+                    std::string s(text);
+                    s.erase(std::remove(s.begin(), s.end(), '\r'), s.end());
+                    s.erase(std::remove(s.begin(), s.end(), '\n'), s.end());
+                    m_text.insert(m_cursorPos, s);
+                    m_cursorPos += static_cast<int>(s.length());
+                    clearSelection();
+                    updateSuggestions();
+                    g_free(text);
+                }
+            }
         }
         return true;
     }
 
-    // Ctrl+Backspace (Delete Word)
-    if ((sym == 0xff08 || sym == SDLK_BACKSPACE || sym == 8) && isCtrl) {
+    // ctrl+backspace: token-aware deletion (delimiters like /?=&. vs words)
+    if (isKeyBksp && isCtrl) {
         if (hasSelection()) {
             deleteSelection();
             updateSuggestions();
         } else if (m_cursorPos > 0) {
+            auto isDelim = [](char c) -> bool {
+                return c == ' ' || c == '\t' || c == '/' || c == '?' || c == '&' ||
+                       c == '=' || c == '.' || c == ':' || c == '-' || c == '_' ||
+                       c == '#' || c == '@' || c == '+' || c == '%';
+            };
             int pos = m_cursorPos;
-            while (pos > 0 && isspace(static_cast<unsigned char>(m_text[pos - 1]))) --pos;
-            while (pos > 0 && !isspace(static_cast<unsigned char>(m_text[pos - 1]))) --pos;
+            while (pos > 0 && m_text[pos - 1] == ' ') --pos;
+            if (pos > 0 && isDelim(m_text[pos - 1])) {
+                while (pos > 0 && isDelim(m_text[pos - 1])) --pos;
+            } else {
+                while (pos > 0 && !isDelim(m_text[pos - 1])) {
+                    --pos;
+                    while (pos > 0 && (static_cast<unsigned char>(m_text[pos]) & 0xC0) == 0x80) {
+                        --pos;
+                    }
+                }
+            }
             m_text.erase(pos, m_cursorPos - pos);
             m_cursorPos = pos;
             updateSuggestions();
@@ -519,8 +576,8 @@ bool OmniboxWidget::handleKeyPress(uint32_t sym, uint16_t mod, const char* textI
         return true;
     }
 
-    // Backspace
-    if (sym == 0xff08 || sym == SDLK_BACKSPACE || sym == 8) {
+    // backspace: delete single codepoint (handles utf8 multibyte correctly)
+    if (isKeyBksp) {
         if (hasSelection()) {
             deleteSelection();
             updateSuggestions();
@@ -538,7 +595,7 @@ bool OmniboxWidget::handleKeyPress(uint32_t sym, uint16_t mod, const char* textI
         return true;
     }
 
-    // Delete
+    // delete: forward delete
     if (sym == 0xffff || sym == 0xff9f || sym == SDLK_DELETE || sym == 127) {
         if (hasSelection()) {
             deleteSelection();
@@ -556,7 +613,7 @@ bool OmniboxWidget::handleKeyPress(uint32_t sym, uint16_t mod, const char* textI
         return true;
     }
 
-    // Left
+    // left arrow
     if (sym == 0xff51 || sym == 0xff96 || sym == SDLK_LEFT) {
         if (hasSelection()) {
             m_cursorPos = getSelMin();
@@ -571,7 +628,7 @@ bool OmniboxWidget::handleKeyPress(uint32_t sym, uint16_t mod, const char* textI
         return true;
     }
 
-    // Right
+    // right arrow
     if (sym == 0xff53 || sym == 0xff98 || sym == SDLK_RIGHT) {
         if (hasSelection()) {
             m_cursorPos = getSelMax();
@@ -586,26 +643,26 @@ bool OmniboxWidget::handleKeyPress(uint32_t sym, uint16_t mod, const char* textI
         return true;
     }
 
-    // Home
+    // home
     if (sym == 0xff50 || sym == 0xff95 || sym == SDLK_HOME) {
         m_cursorPos = 0;
         clearSelection();
         return true;
     }
 
-    // End
+    // end
     if (sym == 0xff57 || sym == 0xff9b || sym == SDLK_END) {
         m_cursorPos = static_cast<int>(m_text.length());
         clearSelection();
         return true;
     }
 
-    // Don't insert text if Ctrl or Alt is held
+    // dont insert text if ctrl or alt is held
     if (isCtrl || (mod & 8)) {
         return false;
     }
 
-    // Regular character typing
+    // regular typing insert
     if (textInput && textInput[0] != '\0') {
         unsigned char first = static_cast<unsigned char>(textInput[0]);
         if (first >= 32 && first != 127) {
@@ -642,7 +699,7 @@ bool OmniboxWidget::handleMouseMove(double mx, double my) {
 }
 
 bool OmniboxWidget::handleMouseDown(double mx, double my) {
-    // Click inside omnibox bar
+    // click inside omnibox input area
     if (mx >= m_lastX && mx <= m_lastX + m_lastW &&
         my >= m_lastY && my <= m_lastY + m_lastH) {
         if (!m_focused) {
@@ -656,13 +713,13 @@ bool OmniboxWidget::handleMouseDown(double mx, double my) {
         }
         return true;
     }
-    // Click inside popup
+    // click inside suggestion dropdown item
     if (m_focused && m_showPopup && m_hoveredSuggestion >= 0) {
         m_selectedSuggestion = m_hoveredSuggestion;
         executeSelection();
         return true;
     }
-    // Click outside: unfocus
+    // click outside dismisses the popup and unfocuses
     if (m_focused) {
         setFocused(false);
     }

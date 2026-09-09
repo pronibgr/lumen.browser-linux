@@ -145,6 +145,7 @@ CMakeFiles/unit_tests.dir/src/ui/omnibox.cpp.o: \
  /usr/include/cairo/cairo-deprecated.h \
  /home/elliot/Проекты/Blueprint\ Browser/src/omnibox/fuzzy_search.hpp \
  /home/elliot/Проекты/Blueprint\ Browser/src/theme/colors.hpp \
+ /home/elliot/Проекты/Blueprint\ Browser/src/core/config.hpp \
  /home/elliot/Проекты/Blueprint\ Browser/src/omnibox/calc_parser.hpp \
  /usr/include/c++/16/optional /usr/include/c++/16/exception \
  /usr/include/c++/16/bits/exception_ptr.h \
