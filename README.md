@@ -1,94 +1,27 @@
-# lampa browser (Linux Edition) ⚡
-
-Легковесный браузер нового поколения под Linux с нативной поддержкой Wayland (с фолбэком на X11), аппаратно-ускоренным рендерингом (OpenGL/EGL), авторской психофизиологической палитрой **«Deep Obsidian»** и анимационным движком **Directional Tab Slide** (180 мс `cubic-bezier(0.16, 1, 0.3, 1)`).
-
----
-
-## 🌌 1. Дизайн-система «Deep Obsidian»
-
-Специально разработана для ночной работы: исключает эффект галации (ореолов вокруг букв), не сбивает выработку мелатонина избыточной яркостью и снимает напряжение с глаз (соотношение контраста ~6.5:1).
-
-| Токен | HEX | Назначение |
-|---|---|---|
-| `--bg-abyss` | `#0E1116` | Базовый холст окна браузера, глубокий ночной фон. |
-| `--bg-surface` | `#151A21` | Фон тулбара, боковых панелей и карточек. |
-| `--bg-subtle` | `#1D232C` | Фоновые неактивные вкладки, поля ввода. |
-| `--bg-active` | `#28313D` | Активная вкладка, фокус в адресной строке. |
-| `--border-soft` | `#2D3745` | Невесомые разделители толщиной 1px. |
-| `--text-main` | `#C2CBD6` | Смягченный лунно-серебристый текст. |
-| `--text-muted` | `#6C798C` | Вторичный текст, плейсхолдеры, параметры. |
-| `--accent-calm` | `#5EEAD4` | Мягкий мятно-тиловый акцент для индикаторов и курсора. |
-
-### Геометрия и скругления
-- **Окно:** `border-radius: 16px`
-- **Вкладки:** `border-radius: 10px 10px 0 0` со сглаженными обратными углами (squircle)
-- **Адресная строка (Omnibox):** `border-radius: 20px` (pill-shape)
-- **Всплывающие меню:** `border-radius: 12px`
-- **Индикатор загрузки:** тонкая неоновая линия `2px` цвета `--accent-calm` без спиннеров
+<div align="center">
+  <img src="assets/lumen.svg" alt="lumen logo" width="128" height="128" />
+  <h1>lumen</h1>
+  <p><strong>a minimal, bloat-free browser engineered for night environments and technical utility.</strong></p>
+</div>
 
 ---
 
-## ⚡ 2. Ключевые возможности
+### overview
 
-1. **Единый компактный бар (Compact Topbar):**
-   - Вкладки и адресная строка размещаются на одном уровне по горизонтали, сохраняя полезную высоту экрана 16:9 / 16:10.
-   - Поддержка **Zen-режима** (автоскрытие бара по `F11`).
+lumen. privacy. light. browse.
 
-2. **«Умный» Omnibox без рекламы:**
-   - **Мгновенный калькулятор:** `2 + 2 * 2`, `(100/4)^2`, `sqrt(144)`
-   - **Конвертер величин и валют:** `100 EUR in USD`, `50 km to miles`, `30 c in f`, `1024 mb in gb`
-   - **Fuzzy Search:** Быстрый нечеткий поиск по открытым вкладкам и локальной истории SQLite.
+### core philosophy
 
-3. **GPU-анимация Directional Tab Slide:**
-   - Переход между вкладками за 180 мс на кривой `cubic-bezier(0.16, 1.0, 0.3, 1.0)`.
-   - При переходе вправо контент скользит влево, при переходе влево — скользит вправо.
-   - VSync синхронизация (60 / 120 / 144 / 240 Гц).
-
-4. **База данных профиля:**
-   - Локальная база SQLite (`~/.config/lampa-browser/profile.db`) для истории, закладок и настроек.
-
-5. **Отложенный ИИ (Lazy AI Core):**
-   - Статус по умолчанию: `INACTIVE_SHUTDOWN` (0% CPU, 0 потоков при старте).
-   - Поддержка BYOK (OpenAI, Gemini, DeepSeek) и локального сокета Ollama (`http://localhost:11434`).
-
-6. **Изоляция Chromium & Zero Telemetry:**
-   - Флаги запуска: `--disable-background-networking`, `--disable-sync`, `--no-pings`, `--disable-client-side-phishing-detection`.
+* **zero bloat:** stripped of unnecessary background processes, news feeds, proprietary widgets, and non-essential telemetry.
+* **low-contrast night aesthetics:** high-contrast dark tones by default, utilizing soft silver slate and subtle teal/mint optical accents that preserve night-adjusted vision.
+* **privacy by default:** aggressive tracker mitigation, strict permission gating, and complete network isolation modes.
+* **predictable utility:** minimal memory footprint, deterministic resource consumption, and seamless linux desktop integration.
 
 ---
 
-## ⌨️ Горячие клавиши
+### features
 
-| Сочетание | Действие |
-|---|---|
-| `Ctrl + T` | Открыть новую вкладку |
-| `Ctrl + W` | Закрыть текущую вкладку |
-| `Ctrl + L` | Сфокусироваться на Omnibox |
-| `Ctrl + Tab` | Переключиться на следующую вкладку (со слайд-анимацией) |
-| `F11` | Включить / выключить Zen-режим |
-| `Enter` | Перейти по URL / выполнить вычисление |
-| `Esc` | Снять фокус с Omnibox / закрыть подсказки |
-
----
-
-## 🛠️ Сборка и запуск
-
-### Зависимости (Arch/CachyOS):
-```bash
-sudo pacman -S gcc clang cmake ninja pkg-config mesa glew cairo pango sqlite curl sdl2
-```
-
-### Сборка:
-```bash
-cmake -B build -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release
-cmake --build build -j$(nproc)
-```
-
-### Запуск тестов:
-```bash
-./build/unit_tests
-```
-
-### Запуск браузера:
-```bash
-./run.sh
-```
+* **l.null mode:** an isolated private browsing session with zero persistent storage, memory sanitization on window close, and disabled network cache.
+* **optics design language:** native wayland/x11 rendering integration with a strict, distraction-free interface.
+* **keyboard-centric navigation:** configurable, vim-like keybindings for tab management, url bar access, and process inspection.
+* **native desktop assets:** mathematically defined vector assets built to scale cleanly across all display densities (hidpi/wayland scale factors).
