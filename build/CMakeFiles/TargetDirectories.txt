@@ -1,0 +1,4 @@
+/home/elliot/Проекты/Blueprint Browser/build/CMakeFiles/blueprint_browser.dir
+/home/elliot/Проекты/Blueprint Browser/build/CMakeFiles/unit_tests.dir
+/home/elliot/Проекты/Blueprint Browser/build/CMakeFiles/edit_cache.dir
+/home/elliot/Проекты/Blueprint Browser/build/CMakeFiles/rebuild_cache.dir

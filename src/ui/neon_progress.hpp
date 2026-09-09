@@ -1,0 +1,24 @@
+#pragma once
+#include <cairo/cairo.h>
+
+namespace Blueprint::UI {
+
+class NeonProgress {
+public:
+    NeonProgress() = default;
+
+    void setProgress(float progress);
+    void setVisible(bool visible) { m_visible = visible; }
+    bool isVisible() const { return m_visible; }
+
+    void update(float dt);
+    void draw(cairo_t* cr, double x, double y, double width);
+
+private:
+    float m_targetProgress = 0.0f;
+    float m_currentProgress = 0.0f;
+    bool m_visible = false;
+    float m_glowPulse = 0.0f;
+};
+
+} // namespace Blueprint::UI
