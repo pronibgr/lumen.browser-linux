@@ -9,6 +9,7 @@
 #include "ui/omnibox.hpp"
 #include "ui/settings_panel.hpp"
 #include "ui/topbar.hpp"
+#include "storage/database.hpp"
 #include <SDL2/SDL_keycode.h>
 #include <glib.h>
 
@@ -499,7 +500,7 @@ void testThemesAndPaletteDefinitions() {
 
     auto& tm = Blueprint::Theme::ThemeManager::instance();
     const auto& palettes = tm.allPalettes();
-    assert(palettes.size() == 4);
+    assert(palettes.size() == 10);
 
     auto colEq = [](const Blueprint::Theme::Color& a, const Blueprint::Theme::Color& b) {
         return std::abs(a.r - b.r) < 1e-4f &&
@@ -551,12 +552,85 @@ void testThemesAndPaletteDefinitions() {
     assert(colEq(rime.textPrimary, Blueprint::Theme::Color::fromHex(0x182129)));
     assert(colEq(rime.accent,      Blueprint::Theme::Color::fromHex(0x2D638E)));
     assert(colEq(rime.textMuted,   Blueprint::Theme::Color::fromHex(0x728494)));
+
+    // 5. scoria
+    const auto& scoria = tm.getPalette(Blueprint::Theme::ThemeId::SCORIA);
+    assert(scoria.name == "scoria");
+    assert(scoria.isDark == true);
+    assert(colEq(scoria.bgBase,      Blueprint::Theme::Color::fromHex(0x111012)));
+    assert(colEq(scoria.bgSurface,   Blueprint::Theme::Color::fromHex(0x1A181C)));
+    assert(colEq(scoria.border,      Blueprint::Theme::Color::fromHex(0x2E2A33)));
+    assert(colEq(scoria.textPrimary, Blueprint::Theme::Color::fromHex(0xE8E2E6)));
+    assert(colEq(scoria.accent,      Blueprint::Theme::Color::fromHex(0xE5935C)));
+    assert(colEq(scoria.textMuted,   Blueprint::Theme::Color::fromHex(0x8E8594)));
+
+    // 6. stibnite
+    const auto& stibnite = tm.getPalette(Blueprint::Theme::ThemeId::STIBNITE);
+    assert(stibnite.name == "stibnite");
+    assert(stibnite.isDark == true);
+    assert(colEq(stibnite.bgBase,      Blueprint::Theme::Color::fromHex(0x0E1014)));
+    assert(colEq(stibnite.bgSurface,   Blueprint::Theme::Color::fromHex(0x161920)));
+    assert(colEq(stibnite.border,      Blueprint::Theme::Color::fromHex(0x262C38)));
+    assert(colEq(stibnite.textPrimary, Blueprint::Theme::Color::fromHex(0xE4E8F0)));
+    assert(colEq(stibnite.accent,      Blueprint::Theme::Color::fromHex(0x78A9FF)));
+    assert(colEq(stibnite.textMuted,   Blueprint::Theme::Color::fromHex(0x737E94)));
+
+    // 7. tephra
+    const auto& tephra = tm.getPalette(Blueprint::Theme::ThemeId::TEPHRA);
+    assert(tephra.name == "tephra");
+    assert(tephra.isDark == true);
+    assert(colEq(tephra.bgBase,      Blueprint::Theme::Color::fromHex(0x121212)));
+    assert(colEq(tephra.bgSurface,   Blueprint::Theme::Color::fromHex(0x1C1C1C)));
+    assert(colEq(tephra.border,      Blueprint::Theme::Color::fromHex(0x2E2E2E)));
+    assert(colEq(tephra.textPrimary, Blueprint::Theme::Color::fromHex(0xDEDEDE)));
+    assert(colEq(tephra.accent,      Blueprint::Theme::Color::fromHex(0x9EC49E)));
+    assert(colEq(tephra.textMuted,   Blueprint::Theme::Color::fromHex(0x7A7A7A)));
+
+    // 8. kaolin
+    const auto& kaolin = tm.getPalette(Blueprint::Theme::ThemeId::KAOLIN);
+    assert(kaolin.name == "kaolin");
+    assert(kaolin.isDark == false);
+    assert(colEq(kaolin.bgBase,      Blueprint::Theme::Color::fromHex(0xF6F3ED)));
+    assert(colEq(kaolin.bgSurface,   Blueprint::Theme::Color::fromHex(0xEBE6DC)));
+    assert(colEq(kaolin.border,      Blueprint::Theme::Color::fromHex(0xD4CDBF)));
+    assert(colEq(kaolin.textPrimary, Blueprint::Theme::Color::fromHex(0x24211D)));
+    assert(colEq(kaolin.accent,      Blueprint::Theme::Color::fromHex(0xB5543C)));
+    assert(colEq(kaolin.textMuted,   Blueprint::Theme::Color::fromHex(0x80776B)));
+
+    // 9. selenite
+    const auto& selenite = tm.getPalette(Blueprint::Theme::ThemeId::SELENITE);
+    assert(selenite.name == "selenite");
+    assert(selenite.isDark == false);
+    assert(colEq(selenite.bgBase,      Blueprint::Theme::Color::fromHex(0xF1F0F5)));
+    assert(colEq(selenite.bgSurface,   Blueprint::Theme::Color::fromHex(0xE5E3EC)));
+    assert(colEq(selenite.border,      Blueprint::Theme::Color::fromHex(0xCBCEDB)));
+    assert(colEq(selenite.textPrimary, Blueprint::Theme::Color::fromHex(0x1F1C2B)));
+    assert(colEq(selenite.accent,      Blueprint::Theme::Color::fromHex(0x6052A8)));
+    assert(colEq(selenite.textMuted,   Blueprint::Theme::Color::fromHex(0x77738A)));
+
+    // 10. loess
+    const auto& loess = tm.getPalette(Blueprint::Theme::ThemeId::LOESS);
+    assert(loess.name == "loess");
+    assert(loess.isDark == false);
+    assert(colEq(loess.bgBase,      Blueprint::Theme::Color::fromHex(0xF5F1E6)));
+    assert(colEq(loess.bgSurface,   Blueprint::Theme::Color::fromHex(0xE8E2D1)));
+    assert(colEq(loess.border,      Blueprint::Theme::Color::fromHex(0xCFC7B0)));
+    assert(colEq(loess.textPrimary, Blueprint::Theme::Color::fromHex(0x26231A)));
+    assert(colEq(loess.accent,      Blueprint::Theme::Color::fromHex(0x586E3F)));
+    assert(colEq(loess.textMuted,   Blueprint::Theme::Color::fromHex(0x827B68)));
+
     (void)palettes;
     (void)colEq;
     (void)noct;
     (void)morion;
     (void)calcite;
     (void)rime;
+    (void)scoria;
+    (void)stibnite;
+    (void)tephra;
+    (void)kaolin;
+    (void)selenite;
+    (void)loess;
 
     std::cout << "  -> Themes & Palette Definitions tests PASSED!\n";
 }
@@ -655,6 +729,86 @@ void testLumenThresholdLogicAndModal() {
     std::cout << "  -> Lumen Threshold Logic & Modal tests PASSED!\n";
 }
 
+void testUserAgentPresetsAndCompatibility() {
+    std::cout << "[Test] Running User-Agent Presets & Compatibility tests...\n";
+
+    Blueprint::UI::SettingsPanel panel;
+    const auto& uas = panel.settings().userAgents;
+
+    // 1. Verify exact count of 7 presets
+    assert(uas.size() == 7);
+
+    // 2. Verify all 7 presets and their exact contents
+    assert(uas[0].name == "Chrome 131 (Linux)");
+    assert(uas[0].platform == "Linux");
+    assert(uas[0].userAgent.find("Chrome/131.0.0.0") != std::string::npos);
+    assert(uas[0].userAgent.find("X11; Linux x86_64") != std::string::npos);
+
+    assert(uas[1].name == "Chrome 131 (Windows)");
+    assert(uas[1].platform == "Windows");
+    assert(uas[1].userAgent.find("Windows NT 10.0") != std::string::npos);
+    assert(uas[1].userAgent.find("Chrome/131.0.0.0") != std::string::npos);
+
+    assert(uas[2].name == "Firefox 133 (Linux)");
+    assert(uas[2].platform == "Linux");
+    assert(uas[2].userAgent.find("Firefox/133.0") != std::string::npos);
+    assert(uas[2].userAgent.find("X11; Linux x86_64") != std::string::npos);
+
+    assert(uas[3].name == "Firefox 133 (Windows)");
+    assert(uas[3].platform == "Windows");
+    assert(uas[3].userAgent.find("Firefox/133.0") != std::string::npos);
+    assert(uas[3].userAgent.find("Windows NT 10.0") != std::string::npos);
+
+    assert(uas[4].name == "Safari 18.1 (macOS)");
+    assert(uas[4].platform == "macOS");
+    assert(uas[4].userAgent.find("Version/18.1 Safari") != std::string::npos);
+    assert(uas[4].userAgent.find("Macintosh; Intel Mac OS X") != std::string::npos);
+
+    assert(uas[5].name == "Edge 131 (Windows)");
+    assert(uas[5].platform == "Windows");
+    assert(uas[5].userAgent.find("Edg/131.0.0.0") != std::string::npos);
+
+    assert(uas[6].name == "Lumen Browser (Default)");
+    assert(uas[6].platform == "WebKit");
+    assert(uas[6].userAgent.find("lumen browser/1.0") != std::string::npos);
+
+    // 3. Test active user agent getter and default
+    assert(panel.settings().activeUserAgentIndex >= 0 && panel.settings().activeUserAgentIndex < 7);
+    std::string activeUa = panel.settings().getActiveUserAgent();
+    assert(!activeUa.empty());
+
+    // 4. Test WebTab static default User-Agent get/set
+    Blueprint::Engine::WebTab::setDefaultUserAgent(uas[0].userAgent);
+    assert(Blueprint::Engine::WebTab::getDefaultUserAgent() == uas[0].userAgent);
+
+    // 5. Test callback on User-Agent change
+    std::string callbackUa;
+    panel.setOnUserAgentChanged([&callbackUa](const std::string& ua) {
+        callbackUa = ua;
+    });
+
+    // 6. Test database persistence across saves and reloads
+    panel.selectUserAgent(2); // Firefox Linux
+    assert(callbackUa == uas[2].userAgent);
+
+    std::string dbUa = Blueprint::Storage::Database::instance().getSetting("user_agent_active_value", "");
+    std::string dbIdx = Blueprint::Storage::Database::instance().getSetting("user_agent_active_index", "");
+    assert(dbUa == uas[2].userAgent);
+    assert(dbIdx == "2");
+
+    // Fresh panel load should restore index 2
+    Blueprint::UI::SettingsPanel freshPanel;
+    assert(freshPanel.settings().activeUserAgentIndex == 2);
+    assert(freshPanel.settings().getActiveUserAgent() == uas[2].userAgent);
+
+    // Reset back to Chrome 131 Linux (index 0) for best video compatibility
+    panel.selectUserAgent(0);
+    assert(callbackUa == uas[0].userAgent);
+    Blueprint::Engine::WebTab::setDefaultUserAgent(uas[0].userAgent);
+
+    std::cout << "  -> User-Agent Presets & Compatibility tests PASSED!\n";
+}
+
 int main() {
     std::cout << "========================================\n";
     std::cout << " lumen browser Unit Tests\n";
@@ -673,6 +827,7 @@ int main() {
     testThemesAndPaletteDefinitions();
     testThemeColorInterpolation();
     testLumenThresholdLogicAndModal();
+    testUserAgentPresetsAndCompatibility();
 
     std::cout << "========================================\n";
     std::cout << " ALL UNIT TESTS PASSED SUCCESSFULLY! ✅\n";

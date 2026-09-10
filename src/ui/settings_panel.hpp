@@ -1,5 +1,7 @@
 #pragma once
 #include <string>
+#include <vector>
+#include <functional>
 #include <cstdint>
 #include <cairo/cairo.h>
 #include "engine/tab_transition.hpp"
@@ -22,6 +24,12 @@ struct SearchEngineInfo {
     bool isCustom = false;
 };
 
+struct UserAgentPreset {
+    std::string name;
+    std::string platform;
+    std::string userAgent;
+};
+
 struct BrowserSettings {
     AnimSettings anim;
     bool  zenMode     = false;
@@ -31,6 +39,17 @@ struct BrowserSettings {
     bool  aiEnabled   = false;
     std::string aiProvider = "Local Ollama";
     std::string aiModel    = "llama3";
+
+    // User-Agent presets (7 presets)
+    std::vector<UserAgentPreset> userAgents;
+    int activeUserAgentIndex = 0; // default to Chrome 131 Linux for best compatibility
+
+    std::string getActiveUserAgent() const {
+        if (activeUserAgentIndex >= 0 && activeUserAgentIndex < static_cast<int>(userAgents.size())) {
+            return userAgents[activeUserAgentIndex].userAgent;
+        }
+        return "";
+    }
 
     std::string getActiveSearchTemplate() const {
         if (activeSearchEngineIndex >= 0 && activeSearchEngineIndex < static_cast<int>(searchEngines.size())) {
@@ -82,12 +101,19 @@ public:
     }
     Theme::ThemeId getPendingLightTheme() const { return m_pendingLightTheme; }
 
+    void setOnUserAgentChanged(std::function<void(const std::string& ua)> cb) { m_onUserAgentChanged = cb; }
+    bool isUaDropdownOpen() const { return m_uaDropdownOpen; }
+    void setUaDropdownOpen(bool v) { m_uaDropdownOpen = v; }
+    void selectUserAgent(int index);
+    void saveActiveUserAgent();
+
     void update(float dt);
     void draw(cairo_t* cr, double winW, double winH);
 
     bool handleMouseDown(double mx, double my);
     bool handleMouseMove(double mx, double my);
     bool handleMouseUp  (double mx, double my);
+    bool handleScroll   (double dy);
     bool handleKeyPress (uint32_t sym, uint32_t mod, const char* text);
 
     bool isInBounds(double mx, double my) const;
@@ -176,10 +202,21 @@ private:
     bool   m_hoveredLumenCancel = false;
     bool   m_hoveredLumenAccept = false;
 
-    // appearance theme card hover animations
+    // appearance theme card hover animations & scrolling
     int    m_hoveredThemeIdx = -1;
-    float  m_themeHover[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
-    double m_appearanceX = 0, m_appearanceY = 0, m_appearanceW = 0;
+    float  m_themeHover[16] = { 0.0f };
+    double m_appearanceX = 0, m_appearanceY = 0, m_appearanceW = 0, m_appearanceH = 0;
+    float  m_appearanceScrollY = 0.0f;
+    float  m_appearanceTargetScrollY = 0.0f;
+    float  m_appearanceMaxScroll = 0.0f;
+
+    // user-agent dropdown animation and state
+    bool   m_uaDropdownOpen = false;
+    float  m_uaDropdownAlpha = 0.0f;
+    int    m_hoveredUaIdx = -1;
+    double m_uaTriggerX = 0, m_uaTriggerY = 0, m_uaTriggerW = 0, m_uaTriggerH = 0;
+    double m_uaDropdownX = 0, m_uaDropdownY = 0, m_uaDropdownW = 0, m_uaDropdownH = 0;
+    std::function<void(const std::string&)> m_onUserAgentChanged;
 
     // cached geometry
     double m_px = 0, m_py = 0, m_pw = 0, m_ph = 0;
@@ -192,10 +229,11 @@ private:
     void drawSidebar(cairo_t* cr, double x, double y, double w, double h);
     void drawContent(cairo_t* cr, double x, double y, double w, double h, int section);
     void drawAnimationsSection(cairo_t* cr, double x, double y, double w);
-    void drawAppearanceSection(cairo_t* cr, double x, double y, double w);
+    void drawAppearanceSection(cairo_t* cr, double x, double y, double w, double h);
     void drawThemePaletteCircle(cairo_t* cr, double cx, double cy, double radius,
                                 const Theme::Palette& pal, float hoverProgress, bool isCurrent);
     void drawSearchSection(cairo_t* cr, double x, double y, double w);
+    void drawCompatibilitySection(cairo_t* cr, double x, double y, double w);
     void drawCreateSearchModal(cairo_t* cr, double winW, double winH);
     void drawDeleteConfirmModal(cairo_t* cr, double winW, double winH);
     void drawLumenThresholdModal(cairo_t* cr, double winW, double winH);
@@ -215,6 +253,7 @@ private:
     void saveCustomEnginesToDb();
     void loadSavedEngines();
     void saveActiveEngine();
+    void loadSavedUserAgents();
 };
 
 } // namespace Blueprint::UI

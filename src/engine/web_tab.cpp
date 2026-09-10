@@ -5,6 +5,10 @@
 #include <openssl/pem.h>
 #include <openssl/x509v3.h>
 #include <sqlite3.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <unistd.h>
 #include "storage/database.hpp"
 #include "core/config.hpp"
 
@@ -230,33 +234,128 @@ const char* NEW_TAB_HTML = R"html(
 </html>
 )html";
 
+// Auto-detect system or local proxy (e.g. GNOME manual proxy or Xray/Happ local proxy)
+static std::string detectSystemProxyUri() {
+    // 1. Check environment variables
+    const char* envHttps = getenv("https_proxy");
+    if (!envHttps) envHttps = getenv("HTTPS_PROXY");
+    if (envHttps && envHttps[0] != '\0') return envHttps;
+
+    const char* envHttp = getenv("http_proxy");
+    if (!envHttp) envHttp = getenv("HTTP_PROXY");
+    if (envHttp && envHttp[0] != '\0') return envHttp;
+
+    const char* envAll = getenv("all_proxy");
+    if (!envAll) envAll = getenv("ALL_PROXY");
+    if (envAll && envAll[0] != '\0') return envAll;
+
+    // 2. Check GNOME desktop system proxy settings
+    GSettingsSchemaSource* src = g_settings_schema_source_get_default();
+    if (src) {
+        GSettingsSchema* schema = g_settings_schema_source_lookup(src, "org.gnome.system.proxy", TRUE);
+        if (schema) {
+            g_settings_schema_unref(schema);
+            GSettings* proxySettings = g_settings_new("org.gnome.system.proxy");
+            char* mode = g_settings_get_string(proxySettings, "mode");
+            std::string smode = mode ? mode : "";
+            g_free(mode);
+            g_object_unref(proxySettings);
+
+            if (smode == "manual") {
+                // Try http proxy
+                GSettingsSchema* httpSchema = g_settings_schema_source_lookup(src, "org.gnome.system.proxy.http", TRUE);
+                if (httpSchema) {
+                    g_settings_schema_unref(httpSchema);
+                    GSettings* httpSettings = g_settings_new("org.gnome.system.proxy.http");
+                    char* host = g_settings_get_string(httpSettings, "host");
+                    int port = g_settings_get_int(httpSettings, "port");
+                    std::string shost = host ? host : "";
+                    g_free(host);
+                    g_object_unref(httpSettings);
+                    if (!shost.empty() && port > 0) {
+                        return "http://" + shost + ":" + std::to_string(port);
+                    }
+                }
+                // Try socks proxy
+                GSettingsSchema* socksSchema = g_settings_schema_source_lookup(src, "org.gnome.system.proxy.socks", TRUE);
+                if (socksSchema) {
+                    g_settings_schema_unref(socksSchema);
+                    GSettings* socksSettings = g_settings_new("org.gnome.system.proxy.socks");
+                    char* host = g_settings_get_string(socksSettings, "host");
+                    int port = g_settings_get_int(socksSettings, "port");
+                    std::string shost = host ? host : "";
+                    g_free(host);
+                    g_object_unref(socksSettings);
+                    if (!shost.empty() && port > 0) {
+                        return "socks5://" + shost + ":" + std::to_string(port);
+                    }
+                }
+            }
+        }
+    }
+
+    // 3. Fallback check for active local proxy ports (10809 HTTP / 10808 SOCKS)
+    int sock = socket(AF_INET, SOCK_STREAM, 0);
+    if (sock >= 0) {
+        struct timeval tv;
+        tv.tv_sec = 0;
+        tv.tv_usec = 80000; // 80ms quick timeout
+        setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof tv);
+        setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, (const char*)&tv, sizeof tv);
+
+        struct sockaddr_in addr;
+        memset(&addr, 0, sizeof(addr));
+        addr.sin_family = AF_INET;
+        addr.sin_port = htons(10809);
+        inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
+
+        if (connect(sock, (struct sockaddr*)&addr, sizeof(addr)) == 0) {
+            close(sock);
+            return "http://127.0.0.1:10809";
+        }
+        close(sock);
+    }
+
+    return "";
+}
+
 } // anonymous namespace
 
-WebTab::WebTab(int id, const std::string& url, const std::string& title)
-    : m_id(id), m_url(url), m_title(title) {
+static std::string s_defaultUserAgent = "";
 
-    // turn off dmabuf or nvidia/mesa drivers crash on linux lol
-    setenv("WEBKIT_DISABLE_DMABUF_RENDERER", "1", 1);
+void WebTab::setDefaultUserAgent(const std::string& ua) {
+    s_defaultUserAgent = ua;
+}
 
-    m_webView = webkit_web_view_new();
+std::string WebTab::getDefaultUserAgent() {
+    return s_defaultUserAgent;
+}
 
-    // enable hardware acceleration, smooth scroll, dev tools
+void WebTab::setUserAgent(const std::string& ua) {
+    if (!m_webView) return;
     WebKitSettings* settings = webkit_web_view_get_settings(WEBKIT_WEB_VIEW(m_webView));
-    webkit_settings_set_enable_javascript(settings, TRUE);
-    webkit_settings_set_enable_developer_extras(settings, TRUE);
-    webkit_settings_set_enable_webgl(settings, TRUE);
-    webkit_settings_set_enable_smooth_scrolling(settings, TRUE);
-    webkit_settings_set_enable_page_cache(settings, TRUE);
-    webkit_settings_set_user_agent_with_application_details(settings, "lumen browser", "1.0");
+    if (!settings) return;
+    if (ua.empty() || ua == "DEFAULT") {
+        webkit_settings_set_user_agent(settings, "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 lumen/1.0");
+    } else {
+        webkit_settings_set_user_agent(settings, ua.c_str());
+    }
+}
 
-    // dark obsidian bg so it doesnt flash blinding white while loading
-    GdkRGBA bg{0.055, 0.067, 0.086, 1.0};
-    webkit_web_view_set_background_color(WEBKIT_WEB_VIEW(m_webView), &bg);
+std::string WebTab::getUserAgent() const {
+    if (!m_webView) return "";
+    WebKitSettings* settings = webkit_web_view_get_settings(WEBKIT_WEB_VIEW(m_webView));
+    if (!settings) return "";
+    const char* ua = webkit_settings_get_user_agent(settings);
+    return ua ? ua : "";
+}
 
-    // persistent sqlite cookie storage so logins actually stick around
-    WebKitWebContext* ctx = webkit_web_view_get_context(WEBKIT_WEB_VIEW(m_webView));
-    WebKitCookieManager* cm = webkit_web_context_get_cookie_manager(ctx);
+static WebKitWebContext* getSharedWebContext() {
+    static WebKitWebContext* s_context = nullptr;
+    if (s_context) return s_context;
+
     std::string dataDir = std::string(g_get_user_data_dir()) + "/lumen-browser";
+    std::string cacheDir = std::string(g_get_user_cache_dir()) + "/lumen-browser";
     std::string lampaDataDir = std::string(g_get_user_data_dir()) + "/lampa-browser";
     std::string oldDataDir = std::string(g_get_user_data_dir()) + "/blueprint";
     if (!g_file_test(dataDir.c_str(), G_FILE_TEST_IS_DIR)) {
@@ -267,9 +366,89 @@ WebTab::WebTab(int id, const std::string& url, const std::string& title)
         }
     }
     g_mkdir_with_parents(dataDir.c_str(), 0700);
+    g_mkdir_with_parents(cacheDir.c_str(), 0700);
+
+    WebKitWebsiteDataManager* manager = webkit_website_data_manager_new(
+        "base-data-directory", dataDir.c_str(),
+        "base-cache-directory", cacheDir.c_str(),
+        NULL
+    );
+
+    webkit_website_data_manager_set_tls_errors_policy(manager, WEBKIT_TLS_ERRORS_POLICY_IGNORE);
+
+    std::string proxyUri = detectSystemProxyUri();
+    if (!proxyUri.empty()) {
+        WebKitNetworkProxySettings* proxySettings = webkit_network_proxy_settings_new(proxyUri.c_str(), nullptr);
+        if (proxySettings) {
+            webkit_website_data_manager_set_network_proxy_settings(manager, WEBKIT_NETWORK_PROXY_MODE_CUSTOM, proxySettings);
+            webkit_network_proxy_settings_free(proxySettings);
+        }
+    }
+
+    s_context = WEBKIT_WEB_CONTEXT(g_object_new(WEBKIT_TYPE_WEB_CONTEXT,
+        "website-data-manager", manager,
+        "process-swap-on-cross-site-navigation-enabled", TRUE,
+        NULL));
+    g_object_unref(manager);
+
+    WebKitCookieManager* cm = webkit_web_context_get_cookie_manager(s_context);
     std::string cookiePath = dataDir + "/cookies.sqlite";
     webkit_cookie_manager_set_persistent_storage(cm, cookiePath.c_str(), WEBKIT_COOKIE_PERSISTENT_STORAGE_SQLITE);
     webkit_cookie_manager_set_accept_policy(cm, WEBKIT_COOKIE_POLICY_ACCEPT_ALWAYS);
+
+    return s_context;
+}
+
+WebTab::WebTab(int id, const std::string& url, const std::string& title)
+    : m_id(id), m_url(url), m_title(title) {
+
+    WebKitSettings* settings = webkit_settings_new();
+    webkit_settings_set_hardware_acceleration_policy(settings, WEBKIT_HARDWARE_ACCELERATION_POLICY_ON_DEMAND);
+    webkit_settings_set_enable_javascript(settings, TRUE);
+    webkit_settings_set_enable_developer_extras(settings, TRUE);
+    webkit_settings_set_enable_webgl(settings, TRUE);
+    webkit_settings_set_enable_smooth_scrolling(settings, TRUE);
+    webkit_settings_set_enable_page_cache(settings, TRUE);
+
+    // enable media streaming and HTML5 audio/video features (MSE, EME, WebRTC, Fullscreen)
+    webkit_settings_set_enable_media(settings, TRUE);
+    webkit_settings_set_enable_mediasource(settings, TRUE);
+    webkit_settings_set_enable_media_capabilities(settings, TRUE);
+    webkit_settings_set_enable_media_stream(settings, TRUE);
+    webkit_settings_set_enable_webaudio(settings, TRUE);
+    webkit_settings_set_enable_webrtc(settings, TRUE);
+    webkit_settings_set_enable_encrypted_media(settings, TRUE);
+    webkit_settings_set_enable_site_specific_quirks(settings, TRUE);
+    webkit_settings_set_enable_fullscreen(settings, TRUE);
+    webkit_settings_set_media_playback_allows_inline(settings, TRUE);
+    webkit_settings_set_media_playback_requires_user_gesture(settings, FALSE);
+
+    if (s_defaultUserAgent.empty() || s_defaultUserAgent == "DEFAULT") {
+        webkit_settings_set_user_agent(settings, "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 lumen/1.0");
+    } else {
+        webkit_settings_set_user_agent(settings, s_defaultUserAgent.c_str());
+    }
+
+    WebKitWebsitePolicies* defaultPolicies = webkit_website_policies_new_with_policies(
+        "autoplay", WEBKIT_AUTOPLAY_ALLOW,
+        NULL
+    );
+
+    WebKitUserContentManager* ucm = webkit_user_content_manager_new();
+
+    m_webView = GTK_WIDGET(g_object_new(WEBKIT_TYPE_WEB_VIEW,
+        "web-context", getSharedWebContext(),
+        "settings", settings,
+        "user-content-manager", ucm,
+        "website-policies", defaultPolicies,
+        NULL));
+    g_object_unref(ucm);
+    g_object_unref(settings);
+    g_object_unref(defaultPolicies);
+
+    // dark obsidian bg so it doesnt flash blinding white while loading
+    GdkRGBA bg{0.055, 0.067, 0.086, 1.0};
+    webkit_web_view_set_background_color(WEBKIT_WEB_VIEW(m_webView), &bg);
 
     setupWebKitSignals();
     loadUrl(url);
@@ -309,15 +488,28 @@ void WebTab::setupWebKitSignals() {
         if (self->m_onProgressChange) self->m_onProgressChange(self->m_loadProgress);
     }), this);
 
-    g_signal_connect(m_webView, "load-failed", G_CALLBACK(+[](WebKitWebView*, WebKitLoadEvent, const char*, GError*, gpointer data) -> gboolean {
+    g_signal_connect(m_webView, "load-failed", G_CALLBACK(+[](WebKitWebView*, WebKitLoadEvent, const char* failing_uri, GError* err, gpointer data) -> gboolean {
         auto* self = static_cast<WebTab*>(data);
-        self->m_loadFailed = true;
-        self->m_isLoading = false;
-        self->m_loadProgress = 1.0f;
-        self->m_siteDataBytes = 0;
-        self->m_siteDataKnown = true;
-        if (self->m_onProgressChange) self->m_onProgressChange(1.0f);
-        return FALSE;
+        // If operation was cancelled (e.g. HTTP 301/302 redirect on youtube.com or aborted sub-resource),
+        // suppress error page so navigation and redirects complete normally.
+        if (err) {
+            if (g_error_matches(err, G_IO_ERROR, G_IO_ERROR_CANCELLED) ||
+                g_error_matches(err, WEBKIT_NETWORK_ERROR, WEBKIT_NETWORK_ERROR_CANCELLED) ||
+                g_error_matches(err, WEBKIT_POLICY_ERROR, WEBKIT_POLICY_ERROR_CANNOT_SHOW_MIME_TYPE)) {
+                return TRUE;
+            }
+        }
+        // Only mark loadFailed if the primary page failed, not secondary subresources/trackers/beacons
+        if (failing_uri && !self->m_url.empty() && self->m_url.find(failing_uri) != std::string::npos) {
+            self->m_loadFailed = true;
+            self->m_isLoading = false;
+            self->m_loadProgress = 1.0f;
+            self->m_siteDataBytes = 0;
+            self->m_siteDataKnown = true;
+            if (self->m_onProgressChange) self->m_onProgressChange(1.0f);
+        }
+        // Always return TRUE to prevent WebKit default error page handler from crashing under Wayland
+        return TRUE;
     }), this);
 
     g_signal_connect(m_webView, "load-changed", G_CALLBACK(+[](WebKitWebView* web_view, WebKitLoadEvent event, gpointer data) {
@@ -338,8 +530,92 @@ void WebTab::setupWebKitSignals() {
                 if (self->m_onTitleChange) self->m_onTitleChange(self->m_title);
             }
             if (!self->m_loadFailed) {
-                self->fetchWebsiteData();
+                // self->fetchWebsiteData();
             }
+        }
+    }), this);
+
+    // 1. Navigation policy & autoplay allowance (fixes videos paused or stalled due to autoplay restrictions)
+    g_signal_connect(m_webView, "decide-policy", G_CALLBACK(+[](WebKitWebView*, WebKitPolicyDecision* decision, WebKitPolicyDecisionType type, gpointer data) -> gboolean {
+        auto* self = static_cast<WebTab*>(data);
+        if (type == WEBKIT_POLICY_DECISION_TYPE_NAVIGATION_ACTION) {
+            WebKitWebsitePolicies* policies = webkit_website_policies_new_with_policies("autoplay", WEBKIT_AUTOPLAY_ALLOW, NULL);
+            webkit_policy_decision_use_with_policies(decision, policies);
+            g_object_unref(policies);
+            return TRUE;
+        } else if (type == WEBKIT_POLICY_DECISION_TYPE_NEW_WINDOW_ACTION) {
+            WebKitNavigationPolicyDecision* navDecision = WEBKIT_NAVIGATION_POLICY_DECISION(decision);
+            WebKitNavigationAction* navAction = webkit_navigation_policy_decision_get_navigation_action(navDecision);
+            WebKitURIRequest* req = webkit_navigation_action_get_request(navAction);
+            const char* uri = webkit_uri_request_get_uri(req);
+            if (uri && uri[0] != '\0') {
+                if (self->m_onNewTabRequested) {
+                    self->m_onNewTabRequested(uri);
+                } else {
+                    self->loadUrl(uri);
+                }
+            }
+            webkit_policy_decision_ignore(decision);
+            return TRUE;
+        }
+        return FALSE;
+    }), this);
+
+    // 2. New window / target="_blank" handler (opens video links that use window.open / target="_blank")
+    g_signal_connect(m_webView, "create", G_CALLBACK(+[](WebKitWebView*, WebKitNavigationAction* navAction, gpointer data) -> GtkWidget* {
+        auto* self = static_cast<WebTab*>(data);
+        WebKitURIRequest* req = webkit_navigation_action_get_request(navAction);
+        const char* uri = webkit_uri_request_get_uri(req);
+        if (uri && uri[0] != '\0' && self->m_onNewTabRequested) {
+            self->m_onNewTabRequested(uri);
+        }
+        return nullptr;
+    }), this);
+
+    // 3. Permission request handler (auto-allow EME/DRM media keys, media devices, notifications)
+    g_signal_connect(m_webView, "permission-request", G_CALLBACK(+[](WebKitWebView*, WebKitPermissionRequest* request, gpointer) -> gboolean {
+        if (WEBKIT_IS_INSTALL_MISSING_MEDIA_PLUGINS_PERMISSION_REQUEST(request)) {
+            webkit_permission_request_deny(request);
+            return TRUE;
+        }
+        webkit_permission_request_allow(request);
+        return TRUE;
+    }), this);
+
+    // 4. TLS error bypass for CDN streaming subresources
+    g_signal_connect(m_webView, "load-failed-with-tls-errors", G_CALLBACK(+[](WebKitWebView* webView, const char* failing_uri, GTlsCertificate* certificate, GTlsCertificateFlags, gpointer) -> gboolean {
+        if (failing_uri && certificate) {
+            std::string host = extractHost(failing_uri);
+            if (!host.empty()) {
+                WebKitWebContext* ctx = webkit_web_view_get_context(webView);
+                webkit_web_context_allow_tls_certificate_for_host(ctx, certificate, host.c_str());
+                return TRUE;
+            }
+        }
+        return FALSE;
+    }), this);
+
+    // 5. Fullscreen signals for video playback
+    g_signal_connect(m_webView, "enter-fullscreen", G_CALLBACK(+[](WebKitWebView*, gpointer data) -> gboolean {
+        auto* self = static_cast<WebTab*>(data);
+        if (self->m_onFullscreenToggled) self->m_onFullscreenToggled(true);
+        return TRUE;
+    }), this);
+
+    g_signal_connect(m_webView, "leave-fullscreen", G_CALLBACK(+[](WebKitWebView*, gpointer data) -> gboolean {
+        auto* self = static_cast<WebTab*>(data);
+        if (self->m_onFullscreenToggled) self->m_onFullscreenToggled(false);
+        return TRUE;
+    }), this);
+
+    // 6. Handle web process crash or termination gracefully without crashing UI process
+    g_signal_connect(m_webView, "web-process-terminated", G_CALLBACK(+[](WebKitWebView*, WebKitWebProcessTerminationReason reason, gpointer data) {
+        auto* self = static_cast<WebTab*>(data);
+        self->m_isLoading = false;
+        self->m_loadFailed = true;
+        if (reason == WEBKIT_WEB_PROCESS_CRASHED) {
+            std::cerr << "[lumen] WebProcess crashed. User must reload tab manually.\n";
+            // webkit_web_view_reload(webView); // THIS CAUSES UI PROCESS SEGFAULT in WebKit 2.42+
         }
     }), this);
 }
@@ -522,7 +798,7 @@ TlsCertificateInfo WebTab::getTlsInfo() const {
     TlsCertificateInfo info;
     info.isHttps = (m_url.find("https://") == 0);
 
-    if (m_loadFailed || !info.isHttps) {
+    if (m_loadFailed || !info.isHttps || !m_webView) {
         info.isValid = false;
         info.issuer = "";
         info.protocol = info.isHttps ? "Connection failed" : "Insecure protocol (HTTP)";
@@ -532,6 +808,12 @@ TlsCertificateInfo WebTab::getTlsInfo() const {
     GTlsCertificate* cert = nullptr;
     GTlsCertificateFlags flags = (GTlsCertificateFlags)0;
     gboolean ok = webkit_web_view_get_tls_info(WEBKIT_WEB_VIEW(m_webView), &cert, &flags);
+    if (!ok || !cert) {
+        info.isValid = false;
+        info.issuer = "";
+        info.protocol = "TLS";
+        return info;
+    }
 
     std::string host = extractHost(m_url);
     info.isValid = ok && (flags == 0) && (cert != nullptr);

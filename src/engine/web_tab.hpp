@@ -58,6 +58,12 @@ public:
     void fetchWebsiteData();
     void clearWebsiteData(std::function<void(bool success)> onComplete = nullptr);
 
+    // User-Agent configuration
+    static void setDefaultUserAgent(const std::string& ua);
+    static std::string getDefaultUserAgent();
+    void setUserAgent(const std::string& ua);
+    std::string getUserAgent() const;
+
     // WebKit Widget
     GtkWidget* getWebView() const { return m_webView; }
     unsigned int getTexture() const { return 0; }
@@ -72,6 +78,12 @@ public:
 
     // callback when site storage size finishes fetching
     void setOnSiteDataChanged(std::function<void(uint64_t bytes)> cb) { m_onSiteDataChanged = cb; }
+
+    // callback when page requests opening a new window/tab (e.g. video links with target="_blank")
+    void setOnNewTabRequested(std::function<void(const std::string& url)> cb) { m_onNewTabRequested = cb; }
+
+    // callback when HTML5 video enters or leaves fullscreen
+    void setOnFullscreenToggled(std::function<void(bool fullscreen)> cb) { m_onFullscreenToggled = cb; }
 
 private:
     int  m_id = 0;
@@ -93,6 +105,8 @@ private:
     std::function<void(const std::string&)> m_onUrlChange;
     std::function<void(float)>              m_onProgressChange;
     std::function<void(uint64_t)>           m_onSiteDataChanged;
+    std::function<void(const std::string&)> m_onNewTabRequested;
+    std::function<void(bool)>               m_onFullscreenToggled;
 
     void setupWebKitSignals();
     void loadNewTabHtml();

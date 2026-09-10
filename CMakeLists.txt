@@ -5,8 +5,8 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# Optimization flags for Linux
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -O2 -pthread")
+# Optimization and debug flags for Linux
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -O2 -g -pthread")
 
 find_package(PkgConfig REQUIRED)
 
@@ -19,6 +19,7 @@ pkg_check_modules(CURL REQUIRED libcurl)
 pkg_check_modules(SDL2 REQUIRED sdl2)
 pkg_check_modules(WEBKIT REQUIRED webkit2gtk-4.1 gtk+-3.0)
 pkg_check_modules(OPENSSL REQUIRED openssl)
+pkg_check_modules(GSTREAMER REQUIRED gstreamer-1.0)
 
 include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/src
@@ -30,6 +31,7 @@ include_directories(
     ${SDL2_INCLUDE_DIRS}
     ${WEBKIT_INCLUDE_DIRS}
     ${OPENSSL_INCLUDE_DIRS}
+    ${GSTREAMER_INCLUDE_DIRS}
 )
 
 set(COMMON_SOURCES
@@ -62,6 +64,7 @@ target_link_libraries(blueprint_browser
     ${SDL2_LIBRARIES}
     ${WEBKIT_LIBRARIES}
     ${OPENSSL_LIBRARIES}
+    ${GSTREAMER_LIBRARIES}
     pthread
     m
 )
@@ -77,6 +80,7 @@ target_link_libraries(unit_tests
     ${SDL2_LIBRARIES}
     ${WEBKIT_LIBRARIES}
     ${OPENSSL_LIBRARIES}
+    ${GSTREAMER_LIBRARIES}
     pthread
     m
 )

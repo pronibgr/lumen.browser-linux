@@ -70,6 +70,62 @@ SettingsPanel::SettingsPanel()
         { "Ecosia",     "https://www.ecosia.org/search?q=%s", false }
     };
     loadSavedEngines();
+    loadSavedUserAgents();
+}
+
+void SettingsPanel::loadSavedUserAgents() {
+    m_settings.userAgents = {
+        { "Chrome 131 (Linux)",   "Linux",   "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36" },
+        { "Chrome 131 (Windows)", "Windows", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36" },
+        { "Firefox 133 (Linux)",   "Linux",   "Mozilla/5.0 (X11; Linux x86_64; rv:133.0) Gecko/20100101 Firefox/133.0" },
+        { "Firefox 133 (Windows)", "Windows", "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0" },
+        { "Safari 18.1 (macOS)",   "macOS",   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Safari/605.1.15" },
+        { "Edge 131 (Windows)",    "Windows", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0" },
+        { "Lumen Browser (Default)", "WebKit", "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15 lumen browser/1.0" }
+    };
+
+    std::string savedUa = Storage::Database::instance().getSetting("user_agent_active_value", "");
+    std::string savedIdxStr = Storage::Database::instance().getSetting("user_agent_active_index", "0");
+    int savedIdx = 0;
+    try { savedIdx = std::stoi(savedIdxStr); } catch (...) {}
+
+    m_settings.activeUserAgentIndex = 0; // default to Chrome 131 Linux
+    if (!savedUa.empty()) {
+        bool found = false;
+        for (size_t i = 0; i < m_settings.userAgents.size(); ++i) {
+            if (m_settings.userAgents[i].userAgent == savedUa) {
+                m_settings.activeUserAgentIndex = static_cast<int>(i);
+                found = true;
+                break;
+            }
+        }
+        if (!found && savedIdx >= 0 && savedIdx < static_cast<int>(m_settings.userAgents.size())) {
+            m_settings.activeUserAgentIndex = savedIdx;
+        }
+    } else if (savedIdx >= 0 && savedIdx < static_cast<int>(m_settings.userAgents.size())) {
+        m_settings.activeUserAgentIndex = savedIdx;
+    }
+    saveActiveUserAgent();
+}
+
+void SettingsPanel::saveActiveUserAgent() {
+    if (m_settings.activeUserAgentIndex >= 0 &&
+        m_settings.activeUserAgentIndex < static_cast<int>(m_settings.userAgents.size())) {
+        const auto& item = m_settings.userAgents[m_settings.activeUserAgentIndex];
+        Storage::Database::instance().setSetting("user_agent_active_index", std::to_string(m_settings.activeUserAgentIndex));
+        Storage::Database::instance().setSetting("user_agent_active_value", item.userAgent);
+        Storage::Database::instance().setSetting("user_agent_active_name", item.name);
+    }
+}
+
+void SettingsPanel::selectUserAgent(int index) {
+    if (index >= 0 && index < static_cast<int>(m_settings.userAgents.size())) {
+        m_settings.activeUserAgentIndex = index;
+        saveActiveUserAgent();
+        if (m_onUserAgentChanged) {
+            m_onUserAgentChanged(m_settings.getActiveUserAgent());
+        }
+    }
 }
 
 void SettingsPanel::loadSavedEngines() {
@@ -231,8 +287,14 @@ void SettingsPanel::toggle() {
 void SettingsPanel::setVisible(bool v) {
     if (v == m_wantOpen) return;
     m_wantOpen = v;
-    if (v) m_openAnim.playForward();
-    else   m_openAnim.playReverse();
+    if (v) {
+        m_openAnim.playForward();
+    } else {
+        m_searchDropdownOpen = false;
+        m_searchEditMode = false;
+        m_uaDropdownOpen = false;
+        m_openAnim.playReverse();
+    }
 }
 
 bool SettingsPanel::isVisible() const {
@@ -255,22 +317,25 @@ bool SettingsPanel::wantsRedraw() const {
         }
     }
     bool themeCardsHovering = false;
-    for (int i = 0; i < 4; ++i) {
+    for (int i = 0; i < 16; ++i) {
         float hTarget = (m_hoveredThemeIdx == i) ? 1.0f : 0.0f;
         if (std::abs(m_themeHover[i] - hTarget) > 0.002f) {
             themeCardsHovering = true;
             break;
         }
     }
+    bool appearanceScrolling = (std::abs(m_appearanceScrollY - m_appearanceTargetScrollY) > 0.05f);
     float dropTarget = m_searchDropdownOpen ? 1.0f : 0.0f;
+    float uaDropTarget = m_uaDropdownOpen ? 1.0f : 0.0f;
     float modalTarget = m_createSearchModalOpen ? 1.0f : 0.0f;
     float delModalTarget = m_deleteConfirmModalOpen ? 1.0f : 0.0f;
     float editTarget = m_searchEditMode ? 1.0f : 0.0f;
     float lumenTarget = m_lumenThresholdModalOpen ? 1.0f : 0.0f;
-    return m_openAnim.isRunning() || m_sectAnim.isRunning() || slidersAnimating || themeCardsHovering ||
+    return m_openAnim.isRunning() || m_sectAnim.isRunning() || slidersAnimating || themeCardsHovering || appearanceScrolling ||
            Theme::ThemeManager::instance().wantsRedraw() ||
            (std::abs(m_lumenThresholdModalAlpha - lumenTarget) > 0.002f) ||
            (std::abs(m_searchDropdownAlpha - dropTarget) > 0.002f) ||
+           (std::abs(m_uaDropdownAlpha - uaDropTarget) > 0.002f) ||
            (std::abs(m_createSearchModalAlpha - modalTarget) > 0.002f) ||
            (std::abs(m_deleteConfirmModalAlpha - delModalTarget) > 0.002f) ||
            (std::abs(m_searchEditModeAlpha - editTarget) > 0.002f) ||
@@ -338,6 +403,11 @@ void SettingsPanel::update(float dt) {
     float dropSpeed = 1.0f - std::exp(-22.0f * dt);
     m_searchDropdownAlpha += (dropTarget - m_searchDropdownAlpha) * dropSpeed;
 
+    // smooth lerp for user-agent dropdown animation
+    float uaDropTarget = m_uaDropdownOpen ? 1.0f : 0.0f;
+    float uaDropSpeed = 1.0f - std::exp(-22.0f * dt);
+    m_uaDropdownAlpha += (uaDropTarget - m_uaDropdownAlpha) * uaDropSpeed;
+
     // smooth lerp for search engine edit mode
     float editTarget = m_searchEditMode ? 1.0f : 0.0f;
     float editSpeed = 1.0f - std::exp(-22.0f * dt);
@@ -358,9 +428,17 @@ void SettingsPanel::update(float dt) {
     float lumenSpeed = 1.0f - std::exp(-22.0f * dt);
     m_lumenThresholdModalAlpha += (lumenTarget - m_lumenThresholdModalAlpha) * lumenSpeed;
 
+    // smooth lerp for appearance section scrolling
+    float scrollFactor = 1.0f - std::exp(-24.0f * dt);
+    m_appearanceScrollY += (m_appearanceTargetScrollY - m_appearanceScrollY) * scrollFactor;
+    if (std::abs(m_appearanceTargetScrollY - m_appearanceScrollY) < 0.05f) {
+        m_appearanceScrollY = m_appearanceTargetScrollY;
+    }
+
     // smooth hover animations for appearance theme cards
-    for (int i = 0; i < 4; ++i) {
-        float hTarget = (m_hoveredThemeIdx == i) ? 1.0f : 0.0f;
+    const auto& palettes = Theme::ThemeManager::instance().allPalettes();
+    for (size_t i = 0; i < palettes.size() && i < 16; ++i) {
+        float hTarget = (m_hoveredThemeIdx == static_cast<int>(i)) ? 1.0f : 0.0f;
         m_themeHover[i] += (hTarget - m_themeHover[i]) * (1.0f - std::exp(-18.0f * dt));
     }
 }
@@ -600,41 +678,132 @@ void SettingsPanel::drawThemePaletteCircle(cairo_t* cr, double cx, double cy, do
     cairo_restore(cr);
 }
 
-void SettingsPanel::drawAppearanceSection(cairo_t* cr, double x, double y, double w) {
+static bool getThemeCardRect(size_t palIdx, double startX, double startY, double w, double scrollY,
+                             double& rx, double& ry, double& rw, double& rh) {
+    const auto& palettes = Theme::ThemeManager::instance().allPalettes();
+    if (palIdx >= palettes.size()) return false;
+
+    double cardH = 54.0;
+    double cardGap = 10.0;
+    double secHeaderH = 26.0;
+    double divH = 20.0;
+
+    int darkRank = 0, lightRank = 0;
+    for (size_t i = 0; i < palIdx; ++i) {
+        if (palettes[i].isDark) darkRank++;
+        else lightRank++;
+    }
+
+    int totalDarkCount = 0;
+    for (const auto& p : palettes) {
+        if (p.isDark) totalDarkCount++;
+    }
+
+    double y = startY - scrollY;
+    if (palettes[palIdx].isDark) {
+        // "Dark Themes" header takes secHeaderH
+        y += secHeaderH + darkRank * (cardH + cardGap);
+    } else {
+        // After dark themes: secHeaderH + totalDarkCount * (cardH + cardGap) + divH + secHeaderH
+        y += secHeaderH + totalDarkCount * (cardH + cardGap) + divH + secHeaderH + lightRank * (cardH + cardGap);
+    }
+
+    rx = startX;
+    ry = y;
+    rw = w;
+    rh = cardH;
+    return true;
+}
+
+void SettingsPanel::drawAppearanceSection(cairo_t* cr, double x, double y, double w, double h) {
     double cY = y;
     drawLabel(cr, x, cY, "Appearance", Theme::TEXT_MAIN, 13.f, true);
     cY += 24.0;
     drawLabel(cr, x, cY, "Curated visual themes built for ocular comfort and focus.", Theme::TEXT_DIM, 9.f);
     cY += 16.0;
 
-    // separator line
+    // top separator line
     sc(cr, Theme::BORDER_SOFT, 0.35f);
     cairo_set_line_width(cr, 1.0);
     cairo_new_path(cr);
     cairo_move_to(cr, x, cY);
     cairo_line_to(cr, x + w, cY);
     cairo_stroke(cr);
-    cY += 16.0;
+    cY += 14.0;
 
-    // cache position for click & hover testing
-    m_appearanceX = x;
-    m_appearanceY = cY;
-    m_appearanceW = w;
+    // Viewport for scrolling theme list
+    double viewX = x;
+    double viewY = cY;
+    double viewW = w;
+    double viewH = (y + h) - viewY;
+    if (viewH < 100.0) viewH = 100.0;
 
     const auto& palettes = Theme::ThemeManager::instance().allPalettes();
-    double cardH = 54.0;
-    double gap = 10.0;
+    int darkCount = 0, lightCount = 0;
+    for (const auto& p : palettes) {
+        if (p.isDark) darkCount++;
+        else lightCount++;
+    }
 
-    for (size_t i = 0; i < palettes.size() && i < 4; ++i) {
+    double cardH = 54.0;
+    double cardGap = 10.0;
+    double secHeaderH = 26.0;
+    double divH = 20.0;
+
+    double totalContentH = secHeaderH + darkCount * (cardH + cardGap) + divH + secHeaderH + lightCount * (cardH + cardGap) + 16.0;
+    m_appearanceMaxScroll = static_cast<float>(std::max(0.0, totalContentH - viewH));
+
+    // Clamp targets
+    if (m_appearanceTargetScrollY < 0.0f) m_appearanceTargetScrollY = 0.0f;
+    if (m_appearanceTargetScrollY > m_appearanceMaxScroll) m_appearanceTargetScrollY = m_appearanceMaxScroll;
+
+    // cache position for click & hover testing
+    m_appearanceX = viewX;
+    m_appearanceY = viewY;
+    m_appearanceW = viewW;
+    m_appearanceH = viewH;
+
+    // Clip to scroll viewport
+    cairo_save(cr);
+    cairo_rectangle(cr, viewX - 4.0, viewY, viewW + 8.0, viewH);
+    cairo_clip(cr);
+
+    double scrollY = m_appearanceScrollY;
+
+    // 1. "Dark Themes" header
+    double darkHeaderY = viewY - scrollY;
+    drawLabel(cr, viewX, darkHeaderY + 4.0, "Dark Themes", Theme::TEXT_MUTED, 10.0f, true);
+
+    // 2. Middle divider line between dark and light themes
+    double darkBlockEnd = darkHeaderY + secHeaderH + darkCount * (cardH + cardGap);
+    double divY = darkBlockEnd + divH / 2.0;
+    sc(cr, Theme::BORDER_SOFT, 0.35f);
+    cairo_set_line_width(cr, 1.0);
+    cairo_new_path(cr);
+    cairo_move_to(cr, viewX, divY);
+    cairo_line_to(cr, viewX + viewW, divY);
+    cairo_stroke(cr);
+
+    // 3. "Light Themes" header
+    double lightHeaderY = darkBlockEnd + divH;
+    drawLabel(cr, viewX, lightHeaderY + 4.0, "Light Themes", Theme::TEXT_MUTED, 10.0f, true);
+
+    // 4. Render all theme cards (full width, exactly like original design)
+    for (size_t i = 0; i < palettes.size(); ++i) {
         const auto& pal = palettes[i];
-        double cardY = cY + i * (cardH + gap);
+        double cardX = 0, cardY = 0, cardW = 0, chH = 0;
+        if (!getThemeCardRect(i, viewX, viewY, viewW, scrollY, cardX, cardY, cardW, chH)) continue;
+
+        // Skip drawing if completely offscreen
+        if (cardY + chH < viewY - 10.0 || cardY > viewY + viewH + 10.0) continue;
+
         bool isCurrent = (Theme::ThemeManager::instance().currentTheme() == pal.id);
-        float h = m_themeHover[i];
+        float hov = (i < 16) ? m_themeHover[i] : 0.0f;
 
         // card background with smooth rounded rectangle
-        rr(cr, x, cardY, w, cardH, 8.0);
-        float bgAlpha = isCurrent ? 0.35f : (0.15f + 0.20f * h);
-        sc(cr, isCurrent ? Theme::BG_ACTIVE : (h > 0.01f ? Theme::BG_ACTIVE : Theme::BG_SUBTLE), bgAlpha);
+        rr(cr, cardX, cardY, cardW, cardH, 8.0);
+        float bgAlpha = isCurrent ? 0.35f : (0.15f + 0.20f * hov);
+        sc(cr, isCurrent ? Theme::BG_ACTIVE : (hov > 0.01f ? Theme::BG_ACTIVE : Theme::BG_SUBTLE), bgAlpha);
         cairo_fill_preserve(cr);
 
         // border: accent if active, border_focus if hovered, else border_soft
@@ -642,13 +811,13 @@ void SettingsPanel::drawAppearanceSection(cairo_t* cr, double x, double y, doubl
             sc(cr, Theme::ACCENT_CALM, 0.85f);
             cairo_set_line_width(cr, 1.4);
         } else {
-            sc(cr, h > 0.05f ? Theme::BORDER_FOCUS : Theme::BORDER_SOFT, 0.40f + 0.45f * h);
+            sc(cr, hov > 0.05f ? Theme::BORDER_FOCUS : Theme::BORDER_SOFT, 0.40f + 0.45f * hov);
             cairo_set_line_width(cr, 1.0);
         }
         cairo_stroke(cr);
 
         // radio / indicator circle on the left
-        double indCx = x + 22.0;
+        double indCx = cardX + 22.0;
         double indCy = cardY + cardH / 2.0;
         double indR = 7.0;
 
@@ -672,7 +841,7 @@ void SettingsPanel::drawAppearanceSection(cairo_t* cr, double x, double y, doubl
         }
 
         // theme title: measure dynamic width with Pango
-        double textX = x + 38.0;
+        double textX = cardX + 38.0;
         PangoLayout* lName = pango_cairo_create_layout(cr);
         PangoFontDescription* fdName = pango_font_description_from_string("Inter Bold 11");
         pango_layout_set_font_description(lName, fdName);
@@ -686,7 +855,6 @@ void SettingsPanel::drawAppearanceSection(cairo_t* cr, double x, double y, doubl
         g_object_unref(lName);
 
         // refined, harmonious badge tag (dark / light)
-        // subtle translucent rounded pill with a tiny jewel dot
         double tagX = textX + nameW + 9.0;
         double tagW = 48.0;
         double tagH = 15.0;
@@ -720,9 +888,24 @@ void SettingsPanel::drawAppearanceSection(cairo_t* cr, double x, double y, doubl
         drawLabel(cr, textX, cardY + 31.0, pal.description.c_str(), Theme::TEXT_MUTED, 8.5f);
 
         // right side: Palette Circle-Collage
-        double circleCx = x + w - 34.0;
+        double circleCx = cardX + cardW - 34.0;
         double circleCy = cardY + cardH / 2.0;
-        drawThemePaletteCircle(cr, circleCx, circleCy, 15.0, pal, h, isCurrent);
+        drawThemePaletteCircle(cr, circleCx, circleCy, 15.0, pal, hov, isCurrent);
+    }
+
+    cairo_restore(cr);
+
+    // Draw subtle scrollbar if content exceeds viewport
+    if (m_appearanceMaxScroll > 1.0f) {
+        double sbW = 3.5;
+        double sbX = viewX + viewW - sbW + 1.0;
+        double trackH = viewH;
+        double thumbH = std::max(24.0, trackH * (viewH / totalContentH));
+        double thumbY = viewY + (trackH - thumbH) * (m_appearanceScrollY / m_appearanceMaxScroll);
+
+        rr(cr, sbX, thumbY, sbW, thumbH, sbW / 2.0);
+        sc(cr, Theme::TEXT_MUTED, 0.40f);
+        cairo_fill(cr);
     }
 }
 
@@ -981,6 +1164,177 @@ void SettingsPanel::drawSearchSection(cairo_t* cr, double x, double y, double w)
         }
 
         cairo_restore(cr);
+    }
+}
+
+void SettingsPanel::drawCompatibilitySection(cairo_t* cr, double x, double y, double w) {
+    double cY = y;
+
+    drawLabel(cr, x, cY, "Compatibility", Theme::TEXT_MAIN, 13.f, true);
+    cY += 26;
+
+    sc(cr, Theme::BORDER_SOFT, 0.3f);
+    cairo_set_line_width(cr, 1.0);
+    cairo_new_path(cr);
+    cairo_move_to(cr, x, cY); cairo_line_to(cr, x + w, cY); cairo_stroke(cr);
+    cY += 16;
+
+    drawLabel(cr, x, cY, "User-Agent Identity Preset", Theme::TEXT_MAIN, 10.5f, true);
+    cY += 18;
+    drawLabel(cr, x, cY, "Select the browser identity sent to websites. Changes apply across all tabs.", Theme::TEXT_DIM, 9.f);
+    cY += 22;
+
+    // dropdown trigger button
+    double trigH = 46.0;
+    m_uaTriggerX = x;
+    m_uaTriggerY = cY;
+    m_uaTriggerW = w;
+    m_uaTriggerH = trigH;
+
+    bool trigHover = (m_hoveredItem == 600);
+    rr(cr, x, cY, w, trigH, 7.0);
+    sc(cr, trigHover ? Theme::BG_ACTIVE : Theme::BG_SUBTLE);
+    cairo_fill_preserve(cr);
+    sc(cr, trigHover ? Theme::ACCENT_CALM : Theme::BORDER_SOFT, trigHover ? 0.75f : 0.45f);
+    cairo_set_line_width(cr, 1.0);
+    cairo_stroke(cr);
+
+    // active preset details
+    std::string activeName = "Chrome 131 (Linux)";
+    std::string activeUa = "";
+    std::string activePlatform = "Linux";
+    if (m_settings.activeUserAgentIndex >= 0 &&
+        m_settings.activeUserAgentIndex < static_cast<int>(m_settings.userAgents.size())) {
+        const auto& item = m_settings.userAgents[m_settings.activeUserAgentIndex];
+        activeName = item.name;
+        activeUa = item.userAgent;
+        activePlatform = item.platform;
+    }
+
+    // Top row: Preset name + platform pill
+    drawLabel(cr, x + 14, cY + 7, activeName.c_str(), Theme::TEXT_MAIN, 10.5f, true);
+
+    // Platform pill
+    double badgeW = 54.0, badgeH = 16.0;
+    double badgeX = x + 14 + activeName.length() * 7.5 + 8.0;
+    rr(cr, badgeX, cY + 7, badgeW, badgeH, 4.0);
+    sc(cr, Theme::BG_SURFACE);
+    cairo_fill_preserve(cr);
+    sc(cr, Theme::ACCENT_CALM, 0.45f);
+    cairo_set_line_width(cr, 1.0);
+    cairo_stroke(cr);
+    drawLabel(cr, badgeX + 7, cY + 8, activePlatform.c_str(), Theme::ACCENT_CALM, 8.0f, true);
+
+    // Bottom row: exact User-Agent string
+    drawLabel(cr, x + 14, cY + 27, activeUa.c_str(), Theme::TEXT_DIM, 8.0f);
+
+    // Chevron icon
+    double chX = x + w - 20;
+    double chY = cY + trigH / 2.0;
+    sc(cr, trigHover ? Theme::TEXT_MAIN : Theme::TEXT_MUTED);
+    cairo_set_line_width(cr, 1.6);
+    cairo_new_path(cr);
+    if (m_uaDropdownOpen) {
+        cairo_move_to(cr, chX - 5, chY + 2);
+        cairo_line_to(cr, chX, chY - 3);
+        cairo_line_to(cr, chX + 5, chY + 2);
+    } else {
+        cairo_move_to(cr, chX - 5, chY - 2);
+        cairo_line_to(cr, chX, chY + 3);
+        cairo_line_to(cr, chX + 5, chY - 2);
+    }
+    cairo_stroke(cr);
+
+    // Animated dropdown list
+    if (m_uaDropdownAlpha > 0.005f) {
+        double itemH = 38.0;
+        int nItems = static_cast<int>(m_settings.userAgents.size());
+        double totalH = nItems * itemH + 8.0;
+        double dropX = x;
+        double dropY = cY + trigH + 6.0;
+        double dropW = w;
+
+        m_uaDropdownX = dropX;
+        m_uaDropdownY = dropY;
+        m_uaDropdownW = dropW;
+        m_uaDropdownH = totalH;
+
+        float alpha = m_uaDropdownAlpha;
+        double shiftY = (1.0f - alpha) * -6.0;
+
+        cairo_save(cr);
+        cairo_translate(cr, 0, shiftY);
+
+        // Drop shadow
+        rr(cr, dropX + 2, dropY + 3, dropW, totalH, 8.0);
+        cairo_set_source_rgba(cr, 0, 0, 0, 0.40 * alpha);
+        cairo_fill(cr);
+
+        // Container background
+        rr(cr, dropX, dropY, dropW, totalH, 8.0);
+        sc(cr, Theme::BG_SURFACE, alpha);
+        cairo_fill_preserve(cr);
+        sc(cr, Theme::BORDER_SOFT, 0.65f * alpha);
+        cairo_set_line_width(cr, 1.0);
+        cairo_stroke(cr);
+
+        double curItemY = dropY + 4.0;
+        for (int i = 0; i < nItems; ++i) {
+            bool isCurrent = (i == m_settings.activeUserAgentIndex);
+            bool isHov = (m_hoveredUaIdx == i);
+            const auto& item = m_settings.userAgents[i];
+
+            if (isCurrent || isHov) {
+                rr(cr, dropX + 4.0, curItemY, dropW - 8.0, itemH, 6.0);
+                if (isCurrent) {
+                    sc(cr, Theme::BG_ACTIVE, 0.95f * alpha);
+                } else {
+                    sc(cr, Theme::BG_SUBTLE, 0.75f * alpha);
+                }
+                cairo_fill(cr);
+            }
+
+            if (isCurrent) {
+                rr(cr, dropX + 6.0, curItemY + 5.0, 3.0, itemH - 10.0, 1.5);
+                sc(cr, Theme::ACCENT_CALM, alpha);
+                cairo_fill(cr);
+            }
+
+            // Top line: name and platform badge
+            drawLabel(cr, dropX + 16.0, curItemY + 4.0, item.name.c_str(),
+                      isCurrent ? Theme::TEXT_MAIN : (isHov ? Theme::TEXT_MAIN : Theme::TEXT_MUTED),
+                      9.5f, isCurrent);
+
+            drawLabel(cr, dropX + dropW - 75.0, curItemY + 4.0, item.platform.c_str(),
+                      isCurrent ? Theme::ACCENT_CALM : Theme::TEXT_DIM, 8.0f, true);
+
+            // Bottom line: exact User-Agent string as requested
+            drawLabel(cr, dropX + 16.0, curItemY + 21.0, item.userAgent.c_str(),
+                      isCurrent ? Theme::TEXT_MUTED : Theme::TEXT_DIM, 7.8f);
+
+            curItemY += itemH;
+        }
+
+        cairo_restore(cr);
+    } else {
+        // Closed hint card
+        double tipY = cY + trigH + 20.0;
+        double tipH = 76.0;
+        rr(cr, x, tipY, w, tipH, 8.0);
+        sc(cr, Theme::BG_SUBTLE, 0.5f);
+        cairo_fill_preserve(cr);
+        sc(cr, Theme::BORDER_SOFT, 0.35f);
+        cairo_set_line_width(cr, 1.0);
+        cairo_stroke(cr);
+
+        // Left accent bar
+        rr(cr, x, tipY, 4.0, tipH, 2.0);
+        sc(cr, Theme::ACCENT_CALM, 0.85f);
+        cairo_fill(cr);
+
+        drawLabel(cr, x + 16, tipY + 12, "Video Streaming & YouTube Compatibility", Theme::TEXT_MAIN, 9.5f, true);
+        drawLabel(cr, x + 16, tipY + 31, "Select Chrome (Linux) or Chrome (Windows) to instruct services (YouTube,", Theme::TEXT_DIM, 8.5f);
+        drawLabel(cr, x + 16, tipY + 49, "VK, Rutube) to deliver high-performance HTML5 DASH / VP9 streams.", Theme::TEXT_DIM, 8.5f);
     }
 }
 
@@ -1380,8 +1734,8 @@ void SettingsPanel::drawLumenThresholdModal(cairo_t* cr, double winW, double win
 }
 
 void SettingsPanel::drawSidebar(cairo_t* cr, double x, double y, double w, double h) {
-    static const char* tabs[] = { "Animations", "Appearance", "Search", "AI Core" };
-    int nTabs = 4;
+    static const char* tabs[] = { "Animations", "Appearance", "Search", "Compatibility", "AI Core" };
+    int nTabs = 5;
     double tabH = 36.0, gap = 4.0;
     double tabStartY = y + 8.0;
 
@@ -1429,9 +1783,10 @@ void SettingsPanel::drawContent(cairo_t* cr, double x, double y, double w, doubl
     double cX = x + 16, cY = y + 16, cW = w - 32;
 
     if (section == 0)      drawAnimationsSection(cr, cX, cY, cW);
-    else if (section == 1) drawAppearanceSection(cr, cX, cY, cW);
+    else if (section == 1) drawAppearanceSection(cr, cX, cY, cW, h - 32);
     else if (section == 2) drawSearchSection(cr, cX, cY, cW);
-    else if (section == 3) drawComingSoon(cr, cX, cY, "AI Core");
+    else if (section == 3) drawCompatibilitySection(cr, cX, cY, cW);
+    else if (section == 4) drawComingSoon(cr, cX, cY, "AI Core");
 
     cairo_restore(cr);
 }
@@ -1544,8 +1899,8 @@ void SettingsPanel::draw(cairo_t* cr, double winW, double winH) {
         cairo_fill(cr);
 
         // compute panel geometry
-        m_pw = std::min(winW - 80, 700.0);
-        m_ph = std::min(winH - 100, 460.0);
+        m_pw = std::min(winW - 80, 720.0);
+        m_ph = std::min(winH - 80, 500.0);
         m_px = (winW - m_pw) / 2.0;
         m_py = (winH - m_ph) / 2.0;
 
@@ -1566,24 +1921,19 @@ void SettingsPanel::draw(cairo_t* cr, double winW, double winH) {
         cairo_paint_with_alpha(cr, alpha);
     }
 
-    // draw create search engine modal on top of everything
-    drawCreateSearchModal(cr, winW, winH);
-
-    // draw delete search engine confirmation modal on top of everything
-    drawDeleteConfirmModal(cr, winW, winH);
-
-    // draw lumen threshold modal on top of everything
     drawLumenThresholdModal(cr, winW, winH);
+    drawDeleteConfirmModal(cr, winW, winH);
+    drawCreateSearchModal(cr, winW, winH);
 }
 
 bool SettingsPanel::isInBounds(double mx, double my) const {
-    return isVisible() && mx >= m_px && mx <= m_px + m_pw && my >= m_py && my <= m_py + m_ph;
+    return mx >= m_px && mx <= m_px + m_pw && my >= m_py && my <= m_py + m_ph;
 }
 
 bool SettingsPanel::handleMouseMove(double mx, double my) {
     if (!isVisible()) return false;
 
-    // if lumen threshold modal is open, track buttons
+    // if lumen threshold modal is open
     if (m_lumenThresholdModalOpen) {
         double mw = std::min(m_winW - 60.0, 480.0);
         double mh = 210.0;
@@ -1600,7 +1950,7 @@ bool SettingsPanel::handleMouseMove(double mx, double my) {
         return true;
     }
 
-    // if delete confirmation modal is open, track buttons
+    // if delete modal is open
     if (m_deleteConfirmModalOpen) {
         double mw = std::min(m_winW - 60.0, 460.0);
         double mh = 175.0;
@@ -1612,12 +1962,12 @@ bool SettingsPanel::handleMouseMove(double mx, double my) {
         double btnDeleteX = modalX + mw - 24.0 - btnW;
         double btnCancelX = btnDeleteX - 12.0 - btnW;
 
-        m_hoveredDeleteCancel  = (mx >= btnCancelX && mx <= btnCancelX + btnW && my >= btnY && my <= btnY + btnH);
+        m_hoveredDeleteCancel = (mx >= btnCancelX && mx <= btnCancelX + btnW && my >= btnY && my <= btnY + btnH);
         m_hoveredDeleteConfirm = (mx >= btnDeleteX && mx <= btnDeleteX + btnW && my >= btnY && my <= btnY + btnH);
         return true;
     }
 
-    // if create search modal is open, track modal button hovers
+    // if create search engine modal is open
     if (m_createSearchModalOpen) {
         double mw = std::min(m_winW - 60.0, 560.0);
         double mh = 265.0;
@@ -1652,8 +2002,8 @@ bool SettingsPanel::handleMouseMove(double mx, double my) {
         }
     }
 
-    // search dropdown items hover
-    if (m_section == 2 && m_searchDropdownOpen) {
+    // search section dropdown hover
+    if (m_section == 2 && m_searchDropdownOpen && m_searchDropdownAlpha > 0.1f) {
         if (mx >= m_dropdownX && mx <= m_dropdownX + m_dropdownW &&
             my >= m_dropdownY && my <= m_dropdownY + m_dropdownH) {
             double relY = my - m_dropdownY - 4.0;
@@ -1692,6 +2042,25 @@ bool SettingsPanel::handleMouseMove(double mx, double my) {
         }
     }
 
+    // compatibility section user agent dropdown hover
+    if (m_section == 3 && m_uaDropdownOpen && m_uaDropdownAlpha > 0.1f) {
+        if (mx >= m_uaDropdownX && mx <= m_uaDropdownX + m_uaDropdownW &&
+            my >= m_uaDropdownY && my <= m_uaDropdownY + m_uaDropdownH) {
+            double relY = my - m_uaDropdownY - 4.0;
+            double itemH = 38.0;
+            int nItems = static_cast<int>(m_settings.userAgents.size());
+            int idx = static_cast<int>(relY / itemH);
+            if (idx >= 0 && idx < nItems) {
+                m_hoveredUaIdx = idx;
+            } else {
+                m_hoveredUaIdx = -1;
+            }
+            return true;
+        } else {
+            m_hoveredUaIdx = -1;
+        }
+    }
+
     int old = m_hoveredItem;
     m_hoveredItem = -1;
     if (!isInBounds(mx, my)) return false;
@@ -1700,11 +2069,11 @@ bool SettingsPanel::handleMouseMove(double mx, double my) {
     double cX = m_px + m_pw - 22, cY = m_py + 22;
     if (std::hypot(mx - cX, my - cY) <= 12) { m_hoveredItem = 9999; }
 
-    // sidebar tabs
+    // sidebar tabs (5 tabs)
     double bodyY = m_py + 44;
     double tabH = 36.0, gap = 4.0;
     double tabStartY = bodyY + 8;
-    for (int i = 0; i < 4; ++i) {
+    for (int i = 0; i < 5; ++i) {
         double ty = tabStartY + i * (tabH + gap);
         if (mx >= m_px + 5 && mx <= m_px + 125 && my >= ty && my <= ty + tabH) {
             m_hoveredItem = 1000 + i;
@@ -1739,15 +2108,17 @@ bool SettingsPanel::handleMouseMove(double mx, double my) {
     // appearance section theme cards hover
     if (m_section == 1) {
         m_hoveredThemeIdx = -1;
-        double cardH = 54.0;
-        double gap = 10.0;
-        for (int i = 0; i < 4; ++i) {
-            double cardY = m_appearanceY + i * (cardH + gap);
-            if (mx >= m_appearanceX && mx <= m_appearanceX + m_appearanceW &&
-                my >= cardY && my <= cardY + cardH) {
-                m_hoveredThemeIdx = i;
-                m_hoveredItem = 500 + i;
-                break;
+        if (my >= m_appearanceY && my <= m_appearanceY + m_appearanceH) {
+            const auto& palettes = Theme::ThemeManager::instance().allPalettes();
+            for (size_t i = 0; i < palettes.size(); ++i) {
+                double rx = 0, ry = 0, rw = 0, rh = 0;
+                if (getThemeCardRect(i, m_appearanceX, m_appearanceY, m_appearanceW, m_appearanceScrollY, rx, ry, rw, rh)) {
+                    if (mx >= rx && mx <= rx + rw && my >= ry && my <= ry + rh) {
+                        m_hoveredThemeIdx = static_cast<int>(i);
+                        m_hoveredItem = 500 + static_cast<int>(i);
+                        break;
+                    }
+                }
             }
         }
     } else {
@@ -1759,6 +2130,14 @@ bool SettingsPanel::handleMouseMove(double mx, double my) {
         if (mx >= m_searchTriggerX && mx <= m_searchTriggerX + m_searchTriggerW &&
             my >= m_searchTriggerY && my <= m_searchTriggerY + m_searchTriggerH) {
             m_hoveredItem = 300;
+        }
+    }
+
+    // compatibility section dropdown trigger
+    if (m_section == 3) {
+        if (mx >= m_uaTriggerX && mx <= m_uaTriggerX + m_uaTriggerW &&
+            my >= m_uaTriggerY && my <= m_uaTriggerY + m_uaTriggerH) {
+            m_hoveredItem = 600;
         }
     }
 
@@ -1902,11 +2281,36 @@ bool SettingsPanel::handleMouseDown(double mx, double my) {
         }
     }
 
+    // user agent dropdown click in section 3
+    if (m_section == 3 && m_uaDropdownOpen) {
+        if (mx >= m_uaDropdownX && mx <= m_uaDropdownX + m_uaDropdownW &&
+            my >= m_uaDropdownY && my <= m_uaDropdownY + m_uaDropdownH) {
+            double relY = my - m_uaDropdownY - 4.0;
+            double itemH = 38.0;
+            int nItems = static_cast<int>(m_settings.userAgents.size());
+            int idx = static_cast<int>(relY / itemH);
+            if (idx >= 0 && idx < nItems) {
+                m_settings.activeUserAgentIndex = idx;
+                saveActiveUserAgent();
+                if (m_onUserAgentChanged) {
+                    m_onUserAgentChanged(m_settings.getActiveUserAgent());
+                }
+                m_uaDropdownOpen = false;
+                return true;
+            }
+            return true;
+        }
+    }
+
     // click outside closes panel
     if (!isInBounds(mx, my)) {
         if (m_searchDropdownOpen) {
             m_searchDropdownOpen = false;
             m_searchEditMode = false;
+            return true;
+        }
+        if (m_uaDropdownOpen) {
+            m_uaDropdownOpen = false;
             return true;
         }
         setVisible(false);
@@ -1918,19 +2322,21 @@ bool SettingsPanel::handleMouseDown(double mx, double my) {
     if (std::hypot(mx - cX, my - cY) <= 12) {
         m_searchDropdownOpen = false;
         m_searchEditMode = false;
+        m_uaDropdownOpen = false;
         setVisible(false);
         return true;
     }
 
-    // sidebar navigation tabs
+    // sidebar navigation tabs (5 tabs)
     double bodyY = m_py + 44;
     double tabH = 36.0, gap = 4.0;
     double tabStartY = bodyY + 8;
-    for (int i = 0; i < 4; ++i) {
+    for (int i = 0; i < 5; ++i) {
         double ty = tabStartY + i * (tabH + gap);
         if (mx >= m_px + 5 && mx <= m_px + 125 && my >= ty && my <= ty + tabH) {
             m_searchDropdownOpen = false;
             m_searchEditMode = false;
+            m_uaDropdownOpen = false;
             sectionSwitch(i);
             return true;
         }
@@ -1976,22 +2382,22 @@ bool SettingsPanel::handleMouseDown(double mx, double my) {
 
     // appearance section: theme selection
     if (m_section == 1) {
-        double cardH = 54.0;
-        double gap = 10.0;
-        for (int i = 0; i < 4; ++i) {
-            double cardY = m_appearanceY + i * (cardH + gap);
-            if (mx >= m_appearanceX && mx <= m_appearanceX + m_appearanceW &&
-                my >= cardY && my <= cardY + cardH) {
-                auto targetTheme = static_cast<Theme::ThemeId>(i);
-                if (targetTheme != Theme::ThemeManager::instance().currentTheme()) {
-                    if (Theme::ThemeManager::isLightTheme(targetTheme) && Theme::ThemeManager::isNightTime()) {
-                        m_pendingLightTheme = targetTheme;
-                        m_lumenThresholdModalOpen = true;
-                    } else {
-                        Theme::ThemeManager::instance().setTheme(targetTheme, true);
+        if (my >= m_appearanceY && my <= m_appearanceY + m_appearanceH) {
+            const auto& palettes = Theme::ThemeManager::instance().allPalettes();
+            for (size_t i = 0; i < palettes.size(); ++i) {
+                double rx = 0, ry = 0, rw = 0, rh = 0;
+                if (getThemeCardRect(i, m_appearanceX, m_appearanceY, m_appearanceW, m_appearanceScrollY, rx, ry, rw, rh)) {
+                    if (mx >= rx && mx <= rx + rw && my >= ry && my <= ry + rh) {
+                        Theme::ThemeId targetTheme = palettes[i].id;
+                        if (Theme::ThemeManager::isLightTheme(targetTheme) && Theme::ThemeManager::isNightTime()) {
+                            m_pendingLightTheme = targetTheme;
+                            m_lumenThresholdModalOpen = true;
+                        } else {
+                            Theme::ThemeManager::instance().setTheme(targetTheme, true);
+                        }
+                        return true;
                     }
                 }
-                return true;
             }
         }
     }
@@ -2010,6 +2416,18 @@ bool SettingsPanel::handleMouseDown(double mx, double my) {
         }
     }
 
+    // compatibility section: dropdown trigger
+    if (m_section == 3) {
+        if (mx >= m_uaTriggerX && mx <= m_uaTriggerX + m_uaTriggerW &&
+            my >= m_uaTriggerY && my <= m_uaTriggerY + m_uaTriggerH) {
+            m_uaDropdownOpen = !m_uaDropdownOpen;
+            return true;
+        } else if (m_uaDropdownOpen) {
+            m_uaDropdownOpen = false;
+            return true;
+        }
+    }
+
     return true; // absorb clicks while panel is open
 }
 
@@ -2018,6 +2436,19 @@ bool SettingsPanel::handleMouseUp(double /*mx*/, double /*my*/) {
         m_dragSlider = -1;
         m_sliderIsDragging = false;
         return true;
+    }
+    return false;
+}
+
+bool SettingsPanel::handleScroll(double dy) {
+    if (!isVisible()) return false;
+    if (m_section == 1) { // Appearance section
+        if (m_appearanceMaxScroll > 0.0f) {
+            double step = 38.0;
+            m_appearanceTargetScrollY += static_cast<float>(dy * step);
+            m_appearanceTargetScrollY = std::clamp(m_appearanceTargetScrollY, 0.0f, m_appearanceMaxScroll);
+            return true;
+        }
     }
     return false;
 }

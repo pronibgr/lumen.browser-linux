@@ -4,11 +4,11 @@ set -e
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 cd "$DIR"
 
-if [ ! -f "build/blueprint_browser" ]; then
-    echo "[lumen] Compiling release build..."
-    cmake -B build -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release
-    cmake --build build -j$(nproc)
-fi
+cmake --build build -j$(nproc)
+
+# Stability flags for GStreamer and WebKitGTK on Linux / NVIDIA Wayland
+export __NV_DISABLE_EXPLICIT_SYNC=1
+unset WEBKIT_DISABLE_DMABUF_RENDERER
 
 echo "[lumen] Starting lumen browser (Linux Edition)..."
 ./build/blueprint_browser "$@"

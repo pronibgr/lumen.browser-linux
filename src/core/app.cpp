@@ -5,6 +5,7 @@
 #include <iostream>
 #include <algorithm>
 #include <gdk/gdk.h>
+#include <curl/curl.h>
 
 namespace Blueprint::Core {
 
@@ -12,8 +13,11 @@ Application::Application() {}
 Application::~Application() { shutdown(); }
 
 bool Application::initialize(int argc, char* argv[]) {
-    // Prevent GPU driver DMABUF crash on Wayland/NVIDIA setups
-    setenv("WEBKIT_DISABLE_DMABUF_RENDERER", "1", 1);
+    // Prevent GPU driver crashes on Wayland/NVIDIA setups
+    setenv("__NV_DISABLE_EXPLICIT_SYNC", "1", 1);
+    unsetenv("WEBKIT_DISABLE_DMABUF_RENDERER");
+
+    curl_global_init(CURL_GLOBAL_ALL);
 
     if (!gtk_init_check(&argc, &argv)) {
         std::cerr << "[Core] GTK initialization failed\n";
@@ -75,12 +79,19 @@ bool Application::initialize(int argc, char* argv[]) {
         }
     }
 
-    // Dark background for window
-    GdkRGBA bgCol{Theme::BG_ABYSS.r, Theme::BG_ABYSS.g, Theme::BG_ABYSS.b, 1.0};
-    #pragma GCC diagnostic push
-    #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-    gtk_widget_override_background_color(m_window, GTK_STATE_FLAG_NORMAL, &bgCol);
-    #pragma GCC diagnostic pop
+    // Dark solid background for window and containers to prevent any alpha bleed-through or holes
+    GtkCssProvider* cssProvider = gtk_css_provider_new();
+    const char* appCss = 
+        "window, .background, box, stack, stack > * {\n"
+        "    background-color: #0E1116;\n"
+        "}\n";
+    gtk_css_provider_load_from_data(cssProvider, appCss, -1, nullptr);
+    gtk_style_context_add_provider_for_screen(
+        gdk_screen_get_default(),
+        GTK_STYLE_PROVIDER(cssProvider),
+        GTK_STYLE_PROVIDER_PRIORITY_APPLICATION
+    );
+    g_object_unref(cssProvider);
 
     // Overlay allows drawing custom popups, certificate banners, and modals on top of WebViews
     m_overlay = gtk_overlay_new();
@@ -117,6 +128,7 @@ bool Application::initialize(int argc, char* argv[]) {
     g_signal_connect(m_overlayArea, "motion-notify-event", G_CALLBACK(onOverlayMotion), this);
     g_signal_connect(m_overlayArea, "button-press-event", G_CALLBACK(onOverlayButtonPress), this);
     g_signal_connect(m_overlayArea, "button-release-event", G_CALLBACK(onOverlayButtonRelease), this);
+    g_signal_connect(m_overlayArea, "scroll-event", G_CALLBACK(onOverlayScroll), this);
 
     gtk_overlay_add_overlay(GTK_OVERLAY(m_overlay), m_overlayArea);
     gtk_overlay_set_overlay_pass_through(GTK_OVERLAY(m_overlay), m_overlayArea, FALSE);
@@ -140,21 +152,7 @@ bool Application::initialize(int argc, char* argv[]) {
         navigateActiveTab(url);
     });
 
-    // when live exchange rates arrive asynchronously, refresh omnibox suggestions & redraw
-    Blueprint::Omnibox::UnitConverter::setOnRatesUpdated([this]() {
-        g_idle_add(+[](gpointer data) -> gboolean {
-            auto* app = static_cast<Application*>(data);
-            if (app->m_topbar.getOmnibox().isFocused()) {
-                app->m_topbar.getOmnibox().updateSuggestions();
-                gtk_widget_queue_draw(app->m_topbarArea);
-                gtk_widget_queue_draw(app->m_overlayArea);
-            }
-            return G_SOURCE_REMOVE;
-        }, this);
-    });
-
-    // kick off initial currency exchange fetch right away
-    Blueprint::Omnibox::UnitConverter::init();
+    // Blueprint::Omnibox::UnitConverter::init();
 
     m_topbar.setOnBack([this]() {
         if (validActive()) { m_tabs[m_activeIdx]->goBack(); syncTopbar(); }
@@ -174,7 +172,25 @@ bool Application::initialize(int argc, char* argv[]) {
         }
     });
 
-    createTab("lumen://newtab");
+    // Initialize WebTab default User-Agent from settings
+    std::string initUa = m_topbar.getSettings().settings().getActiveUserAgent();
+    Engine::WebTab::setDefaultUserAgent(initUa);
+
+    // When User-Agent changes from the settings dropdown, propagate to all tabs
+    m_topbar.getSettings().setOnUserAgentChanged([this](const std::string& ua) {
+        Engine::WebTab::setDefaultUserAgent(ua);
+        for (auto& tab : m_tabs) {
+            if (tab) {
+                tab->setUserAgent(ua);
+            }
+        }
+    });
+
+    std::string startUrl = "lumen://newtab";
+    if (argc > 1 && argv[1] && argv[1][0] != '\0') {
+        startUrl = argv[1];
+    }
+    createTab(startUrl);
 
     // VSync-synchronized frame tick for native monitor refresh rates (60/120/144/240Hz)
     gtk_widget_add_tick_callback(m_window, +[](GtkWidget*, GdkFrameClock*, gpointer data) -> gboolean {
@@ -233,6 +249,7 @@ void Application::createTab(const std::string& url) {
 
     std::string tabName = "tab_" + std::to_string(newId);
     gtk_stack_add_named(GTK_STACK(m_stack), tab->getWebView(), tabName.c_str());
+    gtk_stack_set_visible_child_name(GTK_STACK(m_stack), tabName.c_str());
     gtk_widget_show_all(tab->getWebView());
 
     // Connect tab signal callbacks
@@ -262,6 +279,20 @@ void Application::createTab(const std::string& url) {
         }
     });
 
+    tab->setOnNewTabRequested([this](const std::string& u) {
+        createTab(u);
+    });
+
+    tab->setOnFullscreenToggled([this](bool fs) {
+        if (fs) {
+            gtk_window_fullscreen(GTK_WINDOW(m_window));
+            gtk_widget_hide(m_topbarArea);
+        } else {
+            gtk_window_unfullscreen(GTK_WINDOW(m_window));
+            gtk_widget_show(m_topbarArea);
+        }
+    });
+
     int newIdx = static_cast<int>(m_tabs.size()) - 1;
     switchTab(m_activeIdx, newIdx);
 }
@@ -287,10 +318,15 @@ void Application::closeTab(int index) {
 
 void Application::switchTab(int oldIdx, int newIdx) {
     if (newIdx < 0 || newIdx >= static_cast<int>(m_tabs.size())) return;
-    if (newIdx == oldIdx) return;
     m_activeIdx = newIdx;
 
     std::string tabName = "tab_" + std::to_string(m_tabs[newIdx]->getId());
+    if (newIdx == oldIdx) {
+        gtk_stack_set_visible_child_name(GTK_STACK(m_stack), tabName.c_str());
+        syncTopbar();
+        gtk_widget_queue_draw(m_topbarArea);
+        return;
+    }
 
     // Directional Tab Slide:
     // If going right (newIdx > oldIdx), slide LEFT to reveal new tab from the right.
@@ -474,6 +510,20 @@ gboolean Application::onOverlayButtonRelease(GtkWidget* widget, GdkEventButton* 
     return FALSE;
 }
 
+gboolean Application::onOverlayScroll(GtkWidget* widget, GdkEventScroll* event, gpointer data) {
+    auto* self = static_cast<Application*>(data);
+    double dy = 0.0;
+    if (event->direction == GDK_SCROLL_UP)   dy = -1.0;
+    else if (event->direction == GDK_SCROLL_DOWN) dy = 1.0;
+    else if (event->direction == GDK_SCROLL_SMOOTH) dy = event->delta_y;
+
+    if (self->m_topbar.getSettings().handleScroll(dy)) {
+        gtk_widget_queue_draw(widget);
+        return TRUE;
+    }
+    return FALSE;
+}
+
 gboolean Application::onWindowKeyPress(GtkWidget*, GdkEventKey* event, gpointer data) {
     auto* self = static_cast<Application*>(data);
     bool ctrl = (event->state & GDK_CONTROL_MASK) != 0;
@@ -516,17 +566,24 @@ gboolean Application::onWindowKeyPress(GtkWidget*, GdkEventKey* event, gpointer 
     uint32_t effectiveState = event->state | (ctrl ? 4 : 0);
     guint keyToSend = ctrl ? latinKeyval : event->keyval;
 
-    // 1. settings overlay (has highest priority when open)
+    // 1. settings modal gets top priority
     if (self->m_topbar.getSettings().isVisible()) {
-        if (self->m_topbar.handleKeyPress(keyToSend, effectiveState, event->string)) {
-            gtk_widget_queue_draw(self->m_overlayArea);
-            gtk_widget_queue_draw(self->m_topbarArea);
-            return TRUE;
-        }
+        self->m_topbar.getSettings().handleKeyPress(keyToSend, effectiveState, event->string);
+        gtk_widget_queue_draw(self->m_overlayArea);
         return TRUE; // absorb all events while settings modal is open
     }
 
-    // 2. clear site data / cert banner modals dismiss on escape
+    // 2. Escape exits video fullscreen if active
+    if (event->keyval == GDK_KEY_Escape) {
+        GdkWindow* gdkWin = gtk_widget_get_window(self->m_window);
+        if (gdkWin && (gdk_window_get_state(gdkWin) & GDK_WINDOW_STATE_FULLSCREEN)) {
+            gtk_window_unfullscreen(GTK_WINDOW(self->m_window));
+            gtk_widget_show(self->m_topbarArea);
+            return TRUE;
+        }
+    }
+
+    // 3. clear site data / cert banner modals dismiss on escape
     if (self->m_topbar.isAnyOverlayActive() && event->keyval == GDK_KEY_Escape) {
         self->m_topbar.handleKeyPress(event->keyval, effectiveState, nullptr);
         gtk_widget_queue_draw(self->m_overlayArea);
@@ -629,6 +686,19 @@ gboolean Application::onWindowScroll(GtkWidget*, GdkEventScroll* event, gpointer
         self->handleScrollZoom(dy);
         return TRUE;
     }
+
+    // If settings overlay is open, forward mouse wheel scroll to settings panel
+    if (self->m_topbar.getSettings().isVisible()) {
+        double dy = 0.0;
+        if (event->direction == GDK_SCROLL_UP)   dy = -1.0;
+        else if (event->direction == GDK_SCROLL_DOWN) dy = 1.0;
+        else if (event->direction == GDK_SCROLL_SMOOTH) dy = event->delta_y;
+
+        if (self->m_topbar.getSettings().handleScroll(dy)) {
+            gtk_widget_queue_draw(self->m_overlayArea);
+            return TRUE;
+        }
+    }
     return FALSE;
 }
 
@@ -639,6 +709,7 @@ void Application::run() {
 void Application::shutdown() {
     if (m_running) {
         m_running = false;
+        curl_global_cleanup();
         gtk_main_quit();
     }
 }

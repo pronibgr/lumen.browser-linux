@@ -69,6 +69,7 @@ private:
     static gboolean onOverlayMotion(GtkWidget* widget, GdkEventMotion* event, gpointer data);
     static gboolean onOverlayButtonPress(GtkWidget* widget, GdkEventButton* event, gpointer data);
     static gboolean onOverlayButtonRelease(GtkWidget* widget, GdkEventButton* event, gpointer data);
+    static gboolean onOverlayScroll(GtkWidget* widget, GdkEventScroll* event, gpointer data);
 };
 
 } // namespace Blueprint::Core

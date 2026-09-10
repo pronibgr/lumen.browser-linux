@@ -26,7 +26,13 @@ enum class ThemeId {
     NOCTILUCA = 0,
     MORION    = 1,
     CALCITE   = 2,
-    RIME      = 3
+    RIME      = 3,
+    SCORIA    = 4,
+    STIBNITE  = 5,
+    TEPHRA    = 6,
+    KAOLIN    = 7,
+    SELENITE  = 8,
+    LOESS     = 9
 };
 
 struct Palette {
@@ -92,7 +98,9 @@ public:
         return (hour >= 20 || hour < 8);
     }
     static bool isLightTheme(ThemeId id) {
-        return id == ThemeId::CALCITE || id == ThemeId::RIME;
+        return id == ThemeId::CALCITE  || id == ThemeId::RIME ||
+               id == ThemeId::KAOLIN   || id == ThemeId::SELENITE ||
+               id == ThemeId::LOESS;
     }
 
 private:

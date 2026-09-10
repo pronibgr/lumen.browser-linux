@@ -129,6 +129,144 @@ ThemeManager::ThemeManager() {
     rime.danger      = Color::fromHex(0xD44558);
     m_palettes.push_back(rime);
 
+    // 5. scoria (dark)
+    // porous volcanic basalt with warm peat and deep geological ember glow
+    Palette scoria;
+    scoria.id          = ThemeId::SCORIA;
+    scoria.name        = "scoria";
+    scoria.displayName = "scoria";
+    scoria.description = "Porous basalt anthracite with deep geological ember glow";
+    scoria.isDark      = true;
+    scoria.bgBase      = Color::fromHex(0x111012);
+    scoria.bgSurface   = Color::fromHex(0x1A181C);
+    scoria.border      = Color::fromHex(0x2E2A33);
+    scoria.textPrimary = Color::fromHex(0xE8E2E6);
+    scoria.accent      = Color::fromHex(0xE5935C);
+    scoria.textMuted   = Color::fromHex(0x8E8594);
+    scoria.bgSubtle    = Color::fromHex(0x221F25);
+    scoria.bgActive    = Color::fromHex(0x2A262E);
+    scoria.bgPopup     = Color::fromHex(0x1C191E);
+    scoria.borderFocus = Color::fromHex(0x4A4153);
+    scoria.textDim     = Color::fromHex(0x635B69);
+    scoria.accentDim   = Color::fromHex(0x7A4826);
+    scoria.danger      = Color::fromHex(0xE05560);
+    m_palettes.push_back(scoria);
+
+    // 6. stibnite (dark)
+    // cold lead-steel antimonite crystal monochrome with razor focus
+    Palette stibnite;
+    stibnite.id          = ThemeId::STIBNITE;
+    stibnite.name        = "stibnite";
+    stibnite.displayName = "stibnite";
+    stibnite.description = "Cold lead-steel monochrome with razor crystal electric beam";
+    stibnite.isDark      = true;
+    stibnite.bgBase      = Color::fromHex(0x0E1014);
+    stibnite.bgSurface   = Color::fromHex(0x161920);
+    stibnite.border      = Color::fromHex(0x262C38);
+    stibnite.textPrimary = Color::fromHex(0xE4E8F0);
+    stibnite.accent      = Color::fromHex(0x78A9FF);
+    stibnite.textMuted   = Color::fromHex(0x737E94);
+    stibnite.bgSubtle    = Color::fromHex(0x1D222B);
+    stibnite.bgActive    = Color::fromHex(0x252C38);
+    stibnite.bgPopup     = Color::fromHex(0x181B22);
+    stibnite.borderFocus = Color::fromHex(0x3F4C61);
+    stibnite.textDim     = Color::fromHex(0x525C6F);
+    stibnite.accentDim   = Color::fromHex(0x365894);
+    stibnite.danger      = Color::fromHex(0xE05560);
+    m_palettes.push_back(stibnite);
+
+    // 7. tephra (dark)
+    // achromatic volcanic ash cloud with calming biological sage accent
+    Palette tephra;
+    tephra.id          = ThemeId::TEPHRA;
+    tephra.name        = "tephra";
+    tephra.displayName = "tephra";
+    tephra.description = "Achromatic graphite ash cloud with calming dry sage accent";
+    tephra.isDark      = true;
+    tephra.bgBase      = Color::fromHex(0x121212);
+    tephra.bgSurface   = Color::fromHex(0x1C1C1C);
+    tephra.border      = Color::fromHex(0x2E2E2E);
+    tephra.textPrimary = Color::fromHex(0xDEDEDE);
+    tephra.accent      = Color::fromHex(0x9EC49E);
+    tephra.textMuted   = Color::fromHex(0x7A7A7A);
+    tephra.bgSubtle    = Color::fromHex(0x242424);
+    tephra.bgActive    = Color::fromHex(0x2D2D2D);
+    tephra.bgPopup     = Color::fromHex(0x1E1E1E);
+    tephra.borderFocus = Color::fromHex(0x4A4A4A);
+    tephra.textDim     = Color::fromHex(0x5A5A5A);
+    tephra.accentDim   = Color::fromHex(0x4B6A4B);
+    tephra.danger      = Color::fromHex(0xD45050);
+    m_palettes.push_back(tephra);
+
+    // 8. kaolin (light)
+    // velvety raw porcelain clay with warm terracotta ceramic stamp
+    Palette kaolin;
+    kaolin.id          = ThemeId::KAOLIN;
+    kaolin.name        = "kaolin";
+    kaolin.displayName = "kaolin";
+    kaolin.description = "Velvety raw porcelain clay with warm terracotta ceramic stamp";
+    kaolin.isDark      = false;
+    kaolin.bgBase      = Color::fromHex(0xF6F3ED);
+    kaolin.bgSurface   = Color::fromHex(0xEBE6DC);
+    kaolin.border      = Color::fromHex(0xD4CDBF);
+    kaolin.textPrimary = Color::fromHex(0x24211D);
+    kaolin.accent      = Color::fromHex(0xB5543C);
+    kaolin.textMuted   = Color::fromHex(0x80776B);
+    kaolin.bgSubtle    = Color::fromHex(0xDED7C9);
+    kaolin.bgActive    = Color::fromHex(0xD3CBBA);
+    kaolin.bgPopup     = Color::fromHex(0xEDE7DD);
+    kaolin.borderFocus = Color::fromHex(0xA69A85);
+    kaolin.textDim     = Color::fromHex(0x998F82);
+    kaolin.accentDim   = Color::fromHex(0x733121);
+    kaolin.danger      = Color::fromHex(0xC93636);
+    m_palettes.push_back(kaolin);
+
+    // 9. selenite (light)
+    // milky pearlescent moonstone alabaster with noble mineral ultramarine
+    Palette selenite;
+    selenite.id          = ThemeId::SELENITE;
+    selenite.name        = "selenite";
+    selenite.displayName = "selenite";
+    selenite.description = "Milky pearlescent moonstone with noble mineral ultramarine";
+    selenite.isDark      = false;
+    selenite.bgBase      = Color::fromHex(0xF1F0F5);
+    selenite.bgSurface   = Color::fromHex(0xE5E3EC);
+    selenite.border      = Color::fromHex(0xCBCEDB);
+    selenite.textPrimary = Color::fromHex(0x1F1C2B);
+    selenite.accent      = Color::fromHex(0x6052A8);
+    selenite.textMuted   = Color::fromHex(0x77738A);
+    selenite.bgSubtle    = Color::fromHex(0xDBD8E5);
+    selenite.bgActive    = Color::fromHex(0xCFCBDD);
+    selenite.bgPopup     = Color::fromHex(0xEAE7F2);
+    selenite.borderFocus = Color::fromHex(0x9691B0);
+    selenite.textDim     = Color::fromHex(0x938FA6);
+    selenite.accentDim   = Color::fromHex(0x3D3370);
+    selenite.danger      = Color::fromHex(0xC93B55);
+    m_palettes.push_back(selenite);
+
+    // 10. loess (light)
+    // sun-bleached steppe loess soil with deep pine herbal tone
+    Palette loess;
+    loess.id          = ThemeId::LOESS;
+    loess.name        = "loess";
+    loess.displayName = "loess";
+    loess.description = "Sun-bleached steppe loess soil with deep pine herbal tone";
+    loess.isDark      = false;
+    loess.bgBase      = Color::fromHex(0xF5F1E6);
+    loess.bgSurface   = Color::fromHex(0xE8E2D1);
+    loess.border      = Color::fromHex(0xCFC7B0);
+    loess.textPrimary = Color::fromHex(0x26231A);
+    loess.accent      = Color::fromHex(0x586E3F);
+    loess.textMuted   = Color::fromHex(0x827B68);
+    loess.bgSubtle    = Color::fromHex(0xDDD5BE);
+    loess.bgActive    = Color::fromHex(0xD1C7AC);
+    loess.bgPopup     = Color::fromHex(0xEDE6D3);
+    loess.borderFocus = Color::fromHex(0x9C9378);
+    loess.textDim     = Color::fromHex(0x968F7C);
+    loess.accentDim   = Color::fromHex(0x374825);
+    loess.danger      = Color::fromHex(0xC93636);
+    m_palettes.push_back(loess);
+
     // initialize with default noctiluca
     applyPaletteDirect(m_palettes[0]);
 }
