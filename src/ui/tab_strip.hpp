@@ -59,10 +59,12 @@ private:
     double m_cursorW       = 180.0;
     double m_cursorTargetW = 180.0;
     bool   m_cursorInit    = false;
+    float  m_animTime      = 0.0f;
 
     void drawTab(cairo_t* cr, double x, double y, double w, double h,
                  int idx, bool active, bool hovered, bool closeHov,
-                 const std::string& title, float closeFade);
+                 const std::string& title, float closeFade,
+                 bool isOnion = false, bool isLoading = false);
     void computeLayout(double width, size_t numTabs, double& tabW, double& totalW);
 };
 

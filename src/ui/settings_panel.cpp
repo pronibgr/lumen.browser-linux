@@ -6,6 +6,8 @@
 #include "ui/settings_panel.hpp"
 #include "theme/colors.hpp"
 #include "storage/database.hpp"
+#include "core/tor_bridge.hpp"
+#include "core/tor_provisioner.hpp"
 #include <gtk/gtk.h>
 #include <SDL2/SDL.h>
 #include <pango/pangocairo.h>
@@ -71,6 +73,23 @@ SettingsPanel::SettingsPanel()
     };
     loadSavedEngines();
     loadSavedUserAgents();
+    m_onionRoutingEnabled = Core::TorBridge::isTorRoutingEnabled();
+    m_onionTorPort = Core::TorBridge::getTorPort();
+    m_onionToggleAnim = m_onionRoutingEnabled ? 1.0f : 0.0f;
+
+    Core::TorProvisioner::instance().setOnLog([this](const std::string&) {
+        m_termLogTargetScrollY = 999999.0;
+    });
+}
+
+void SettingsPanel::setOnionRoutingEnabled(bool v) {
+    m_onionRoutingEnabled = v;
+    Core::TorBridge::setTorRoutingEnabled(v);
+}
+
+void SettingsPanel::setOnionTorPort(int port) {
+    m_onionTorPort = port;
+    Core::TorBridge::setTorPort(port);
 }
 
 void SettingsPanel::loadSavedUserAgents() {
@@ -340,7 +359,13 @@ bool SettingsPanel::wantsRedraw() const {
            (std::abs(m_deleteConfirmModalAlpha - delModalTarget) > 0.002f) ||
            (std::abs(m_searchEditModeAlpha - editTarget) > 0.002f) ||
            std::abs(m_sidebarCursorY - static_cast<float>(m_section)) > 0.002f ||
-           std::abs(m_toggleAnim - (m_settings.anim.enabled ? 1.0f : 0.0f)) > 0.002f;
+           std::abs(m_toggleAnim - (m_settings.anim.enabled ? 1.0f : 0.0f)) > 0.002f ||
+           (m_section == 4 && Core::TorProvisioner::instance().isRunning()) ||
+           (m_section == 4 && std::abs(m_onionToggleAnim - (m_onionRoutingEnabled ? 1.0f : 0.0f)) > 0.002f) ||
+           (m_section == 4 && std::abs(m_torSectionScrollY - m_torSectionTargetScrollY) > 0.05f) ||
+           (m_section == 4 && std::abs(m_termLogScrollY - m_termLogTargetScrollY) > 0.05) ||
+           (m_section == 4 && std::abs(m_statusBannerAlpha - ((Core::TorProvisioner::instance().getState() != Core::ProvisionState::IDLE) ? 1.0f : 0.0f)) > 0.002f) ||
+           (m_section == 4 && std::abs(m_termLogHeightAnim - ((!Core::TorProvisioner::instance().getLogs().empty() || Core::TorProvisioner::instance().isRunning()) ? 130.0f : 0.0f)) > 0.5f);
 }
 
 void SettingsPanel::update(float dt) {
@@ -441,6 +466,49 @@ void SettingsPanel::update(float dt) {
         float hTarget = (m_hoveredThemeIdx == static_cast<int>(i)) ? 1.0f : 0.0f;
         m_themeHover[i] += (hTarget - m_themeHover[i]) * (1.0f - std::exp(-18.0f * dt));
     }
+
+    if (m_section == 4) {
+        // smooth toggle pill animation for onion routing
+        float togTarget = m_onionRoutingEnabled ? 1.0f : 0.0f;
+        m_onionToggleAnim += (togTarget - m_onionToggleAnim) * (1.0f - std::exp(-22.0f * dt));
+
+        // smooth spinner rotation when TorProvisioner is running
+        if (Core::TorProvisioner::instance().isRunning()) {
+            m_spinnerAngle += 7.0f * dt;
+            if (m_spinnerAngle > 2.0f * static_cast<float>(M_PI)) {
+                m_spinnerAngle -= 2.0f * static_cast<float>(M_PI);
+            }
+        }
+
+        // smooth status banner alpha
+        float bannerTarget = (Core::TorProvisioner::instance().getState() != Core::ProvisionState::IDLE) ? 1.0f : 0.0f;
+        m_statusBannerAlpha += (bannerTarget - m_statusBannerAlpha) * (1.0f - std::exp(-18.0f * dt));
+
+        // smooth terminal console alpha and height
+        bool hasLogs = !Core::TorProvisioner::instance().getLogs().empty();
+        float termTarget = (hasLogs || Core::TorProvisioner::instance().isRunning()) ? 1.0f : 0.0f;
+        m_termLogAlpha += (termTarget - m_termLogAlpha) * (1.0f - std::exp(-16.0f * dt));
+        float targetH = (hasLogs || Core::TorProvisioner::instance().isRunning()) ? 130.0f : 0.0f;
+        m_termLogHeightAnim += (targetH - m_termLogHeightAnim) * (1.0f - std::exp(-16.0f * dt));
+
+        // smooth terminal scroll
+        m_termLogScrollY += (m_termLogTargetScrollY - m_termLogScrollY) * (1.0f - std::exp(-24.0f * dt));
+        if (std::abs(m_termLogTargetScrollY - m_termLogScrollY) < 0.05) {
+            m_termLogScrollY = m_termLogTargetScrollY;
+        }
+
+        // smooth section scroll
+        m_torSectionScrollY += (m_torSectionTargetScrollY - m_torSectionScrollY) * (1.0f - std::exp(-24.0f * dt));
+        if (std::abs(m_torSectionTargetScrollY - m_torSectionScrollY) < 0.05f) {
+            m_torSectionScrollY = m_torSectionTargetScrollY;
+        }
+
+        m_torProbeTimer += dt;
+        if (m_torProbeTimer >= 1.5f) {
+            m_torProbeTimer = 0.0f;
+            m_torProbeOnline = Core::TorBridge::probeTorDaemon(m_onionTorPort, 80);
+        }
+    }
 }
 
 void SettingsPanel::sectionSwitch(int to) {
@@ -450,6 +518,10 @@ void SettingsPanel::sectionSwitch(int to) {
     m_section     = to;
     m_sectAnim.setInstant(0.f);
     m_sectAnim.playForward();
+    if (to == 4) {
+        m_torProbeOnline = Core::TorBridge::probeTorDaemon(m_onionTorPort, 80);
+        m_torProbeTimer = 0.0f;
+    }
 }
 
 void SettingsPanel::drawLabel(cairo_t* cr, double x, double y, const char* text,
@@ -1338,6 +1410,410 @@ void SettingsPanel::drawCompatibilitySection(cairo_t* cr, double x, double y, do
     }
 }
 
+void SettingsPanel::drawTorSection(cairo_t* cr, double x, double y, double w, double h) {
+    cairo_save(cr);
+    cairo_rectangle(cr, x, y, w, h);
+    cairo_clip(cr);
+
+    double scrollY = m_torSectionScrollY;
+    cairo_translate(cr, 0, -scrollY);
+
+    double cY = y;
+
+    drawLabel(cr, x, cY, "Privacy & Tor Bridge", Theme::TEXT_MAIN, 13.f, true);
+    cY += 26;
+
+    sc(cr, Theme::BORDER_SOFT, 0.3f);
+    cairo_set_line_width(cr, 1.0);
+    cairo_new_path(cr);
+    cairo_move_to(cr, x, cY); cairo_line_to(cr, x + w, cY); cairo_stroke(cr);
+    cY += 16;
+
+    drawLabel(cr, x, cY, "Tor Hidden Services (.onion)", Theme::TEXT_MAIN, 10.5f, true);
+    cY += 18;
+    drawLabel(cr, x, cY, "Transparent routing for .onion addresses via local SOCKS5h proxy.", Theme::TEXT_DIM, 9.f);
+    cY += 24;
+
+    // Toggle card (700)
+    double cardH = 58.0;
+    bool cardHover = (m_hoveredItem == 700);
+    rr(cr, x, cY, w, cardH, 8.0);
+    sc(cr, cardHover ? Theme::BG_ACTIVE : Theme::BG_SUBTLE, cardHover ? 0.85f : 0.65f);
+    cairo_fill_preserve(cr);
+    sc(cr, cardHover ? Theme::ACCENT_CALM : Theme::BORDER_SOFT, cardHover ? 0.65f : 0.35f);
+    cairo_set_line_width(cr, 1.0);
+    cairo_stroke(cr);
+
+    m_torToggleCardX = x;
+    m_torToggleCardY = cY - scrollY;
+    m_torToggleCardW = w;
+    m_torToggleCardH = cardH;
+
+    // Toggle switch inside card
+    double togX = x + 16.0;
+    double togY = cY + (cardH - 22.0) / 2.0;
+    double tw = 40.0, th = 22.0, r = 11.0;
+    rr(cr, togX, togY, tw, th, r);
+    
+    float tAnim = std::clamp(m_onionToggleAnim, 0.0f, 1.0f);
+    cairo_set_source_rgba(cr,
+        Theme::BG_SURFACE.r + (Theme::ACCENT_CALM.r - Theme::BG_SURFACE.r) * tAnim,
+        Theme::BG_SURFACE.g + (Theme::ACCENT_CALM.g - Theme::BG_SURFACE.g) * tAnim,
+        Theme::BG_SURFACE.b + (Theme::ACCENT_CALM.b - Theme::BG_SURFACE.b) * tAnim,
+        0.95);
+    cairo_fill(cr);
+
+    double thumbX = (togX + r) + ((togX + tw - r) - (togX + r)) * tAnim;
+    cairo_new_path(cr);
+    cairo_arc(cr, thumbX + 0.5, togY + th / 2.0 + 1.0, r - 3.0, 0, 2 * M_PI);
+    cairo_set_source_rgba(cr, 0.0, 0.0, 0.0, 0.25);
+    cairo_fill(cr);
+
+    cairo_new_path(cr);
+    cairo_arc(cr, thumbX, togY + th / 2.0, r - 3.0, 0, 2 * M_PI);
+    cairo_set_source_rgba(cr, 1.0, 1.0, 1.0, 0.98);
+    cairo_fill(cr);
+
+    drawLabel(cr, togX + tw + 14.0, cY + 12.0, "Enable .onion Routing (Tor Bridge)", Theme::TEXT_MAIN, 10.5f, true);
+    drawLabel(cr, togX + tw + 14.0, cY + 32.0,
+              m_onionRoutingEnabled ? "Active: .onion tabs isolated in ephemeral session" : "Disabled: .onion requests will display informational warning",
+              Theme::TEXT_DIM, 8.5f);
+
+    cY += cardH + 10.0;
+
+    // Warning text & inline trigger (710)
+    // ⚠️ Tor system service must be installed and active. Check status now.
+    double rowX = x + 2.0;
+    drawLabel(cr, rowX, cY, "\xE2\x9A\xA0", {0.96f, 0.70f, 0.25f, 0.95f}, 9.5f, false);
+    const char* warnText = "Tor system service must be installed and active.";
+    drawLabel(cr, rowX + 18.0, cY, warnText, Theme::TEXT_MUTED, 9.0f, false);
+
+    PangoLayout* lWarn = pango_cairo_create_layout(cr);
+    PangoFontDescription* fdWarn = pango_font_description_from_string("Inter 9");
+    pango_layout_set_font_description(lWarn, fdWarn);
+    pango_font_description_free(fdWarn);
+    pango_layout_set_text(lWarn, warnText, -1);
+    int warnW = 0, warnH = 0;
+    pango_layout_get_pixel_size(lWarn, &warnW, &warnH);
+    g_object_unref(lWarn);
+
+    double linkX = rowX + 18.0 + warnW + 8.0;
+    bool linkHover = (m_hoveredItem == 710);
+    Theme::Color linkCol = linkHover ? Theme::TEXT_MAIN : Theme::ACCENT_CALM;
+    const char* linkText = "Check status now.";
+    drawLabel(cr, linkX, cY, linkText, linkCol, 9.0f, true);
+
+    PangoLayout* lLink = pango_cairo_create_layout(cr);
+    PangoFontDescription* fdLink = pango_font_description_from_string("Inter Bold 9");
+    pango_layout_set_font_description(lLink, fdLink);
+    pango_font_description_free(fdLink);
+    pango_layout_set_text(lLink, linkText, -1);
+    int linkW_px = 0, linkH_px = 0;
+    pango_layout_get_pixel_size(lLink, &linkW_px, &linkH_px);
+    g_object_unref(lLink);
+
+    double linkW = linkW_px;
+    double linkH = 16.0;
+    m_warningLinkX = linkX;
+    m_warningLinkY = cY - scrollY;
+    m_warningLinkW = linkW;
+    m_warningLinkH = linkH;
+
+    // subtle underline under "Check status now."
+    cairo_set_source_rgba(cr, linkCol.r, linkCol.g, linkCol.b, linkHover ? 0.9 : 0.5);
+    cairo_set_line_width(cr, 1.0);
+    cairo_new_path(cr);
+    cairo_move_to(cr, linkX, cY + 14.0);
+    cairo_line_to(cr, linkX + linkW, cY + 14.0);
+    cairo_stroke(cr);
+
+    cY += 24.0;
+
+    // Status Banner (if provisioner active or banner animating)
+    auto provState = Core::TorProvisioner::instance().getState();
+    if (m_statusBannerAlpha > 0.01f || provState != Core::ProvisionState::IDLE) {
+        double banH = 36.0;
+        float bAlpha = std::clamp(m_statusBannerAlpha, 0.0f, 1.0f);
+        rr(cr, x, cY, w, banH, 6.0);
+
+        if (provState == Core::ProvisionState::RUNNING) {
+            cairo_set_source_rgba(cr, 0.16, 0.20, 0.30, 0.70 * bAlpha);
+            cairo_fill_preserve(cr);
+            cairo_set_source_rgba(cr, Theme::ACCENT_CALM.r, Theme::ACCENT_CALM.g, Theme::ACCENT_CALM.b, 0.75 * bAlpha);
+            cairo_set_line_width(cr, 1.0);
+            cairo_stroke(cr);
+
+            // Rotating spinner
+            double spX = x + 18.0, spY = cY + banH / 2.0;
+            cairo_new_path(cr);
+            cairo_arc(cr, spX, spY, 5.5, 0, 2 * M_PI);
+            cairo_set_source_rgba(cr, 1.0, 1.0, 1.0, 0.15 * bAlpha);
+            cairo_set_line_width(cr, 2.0);
+            cairo_stroke(cr);
+
+            cairo_new_path(cr);
+            cairo_arc(cr, spX, spY, 5.5, m_spinnerAngle, m_spinnerAngle + 1.25 * M_PI);
+            cairo_set_source_rgba(cr, Theme::ACCENT_CALM.r, Theme::ACCENT_CALM.g, Theme::ACCENT_CALM.b, 0.95 * bAlpha);
+            cairo_set_line_width(cr, 2.0);
+            cairo_stroke(cr);
+
+            std::string msg = Core::TorProvisioner::instance().getStatusMessage();
+            if (msg.empty()) msg = "Probing Tor daemon and system services...";
+            drawLabel(cr, x + 34.0, cY + 10.0, msg.c_str(), Theme::TEXT_MAIN, 9.0f, false);
+        } else if (provState == Core::ProvisionState::SUCCESS) {
+            cairo_set_source_rgba(cr, 0.10, 0.26, 0.15, 0.70 * bAlpha);
+            cairo_fill_preserve(cr);
+            cairo_set_source_rgba(cr, 0.29, 0.87, 0.50, 0.80 * bAlpha);
+            cairo_set_line_width(cr, 1.0);
+            cairo_stroke(cr);
+
+            drawLabel(cr, x + 14.0, cY + 9.0, "\xE2\x9C\x93", {0.29f, 0.87f, 0.50f, bAlpha}, 11.0f, true);
+            std::string msg = Core::TorProvisioner::instance().getStatusMessage();
+            if (msg.empty()) msg = "Tor service is installed, configured, and running properly.";
+            drawLabel(cr, x + 34.0, cY + 10.0, msg.c_str(), {0.85f, 0.98f, 0.88f, bAlpha}, 9.0f, true);
+        } else if (provState == Core::ProvisionState::ERROR) {
+            cairo_set_source_rgba(cr, 0.30, 0.12, 0.14, 0.70 * bAlpha);
+            cairo_fill_preserve(cr);
+            cairo_set_source_rgba(cr, 0.97, 0.44, 0.44, 0.80 * bAlpha);
+            cairo_set_line_width(cr, 1.0);
+            cairo_stroke(cr);
+
+            drawLabel(cr, x + 14.0, cY + 9.0, "\xE2\x9C\x95", {0.97f, 0.44f, 0.44f, bAlpha}, 11.0f, true);
+            std::string msg = Core::TorProvisioner::instance().getStatusMessage();
+            if (msg.empty()) msg = "Tor service could not be started.";
+            drawLabel(cr, x + 34.0, cY + 10.0, msg.c_str(), {0.98f, 0.85f, 0.85f, bAlpha}, 9.0f, true);
+        }
+
+        cY += banH + 14.0;
+    }
+
+    // Tor SOCKS5 Port Selection with gliding indicator pill
+    drawLabel(cr, x, cY, "SOCKS5 Proxy Port", Theme::TEXT_MAIN, 10.0f, true);
+    cY += 18;
+
+    double btnW = (w - 12.0) / 2.0;
+    double btnH = 34.0;
+    double btn1X = x;
+    double btn2X = x + btnW + 12.0;
+
+    // Track background
+    rr(cr, x, cY, w, btnH, 6.0);
+    sc(cr, Theme::BG_SURFACE, 0.65f);
+    cairo_fill_preserve(cr);
+    sc(cr, Theme::BORDER_SOFT, 0.25f);
+    cairo_set_line_width(cr, 1.0);
+    cairo_stroke(cr);
+
+    // Gliding indicator pill
+    double targetPillX = (m_onionTorPort == 9050) ? btn1X : btn2X;
+    double targetPillW = btnW;
+    if (!m_torPortSliderInit) {
+        m_torPortSliderX = targetPillX;
+        m_torPortSliderW = targetPillW;
+        m_torPortSliderInit = true;
+    }
+    m_torPortSliderX += (targetPillX - m_torPortSliderX) * 0.30;
+    m_torPortSliderW += (targetPillW - m_torPortSliderW) * 0.30;
+
+    rr(cr, m_torPortSliderX, cY, m_torPortSliderW, btnH, 6.0);
+    sc(cr, Theme::BG_ACTIVE, 0.95f);
+    cairo_fill_preserve(cr);
+    sc(cr, Theme::ACCENT_CALM, 0.85f);
+    cairo_set_line_width(cr, 1.0);
+    cairo_stroke(cr);
+
+    // Port 9050 button
+    bool port9050Active = (m_onionTorPort == 9050);
+    m_torPort9050X = btn1X;
+    m_torPort9050Y = cY - scrollY;
+    m_torPort9050W = btnW;
+    m_torPort9050H = btnH;
+    drawCenteredText(cr, btn1X, cY, btnW, btnH, "9050 (System tor daemon)", port9050Active ? Theme::TEXT_MAIN : Theme::TEXT_MUTED, 9.5f, port9050Active);
+
+    // Port 9150 button
+    bool port9150Active = (m_onionTorPort == 9150);
+    m_torPort9150X = btn2X;
+    m_torPort9150Y = cY - scrollY;
+    m_torPort9150W = btnW;
+    m_torPort9150H = btnH;
+    drawCenteredText(cr, btn2X, cY, btnW, btnH, "9150 (Tor Browser bundle)", port9150Active ? Theme::TEXT_MAIN : Theme::TEXT_MUTED, 9.5f, port9150Active);
+
+    cY += btnH + 16.0;
+
+    // Live Probe Status Card
+    double statCardH = 42.0;
+    rr(cr, x, cY, w, statCardH, 6.0);
+    sc(cr, Theme::BG_SUBTLE, 0.45f);
+    cairo_fill_preserve(cr);
+    sc(cr, Theme::BORDER_SOFT, 0.3f);
+    cairo_set_line_width(cr, 1.0);
+    cairo_stroke(cr);
+
+    double dotX = x + 20.0;
+    double dotY = cY + statCardH / 2.0;
+    cairo_new_path(cr);
+    cairo_arc(cr, dotX, dotY, 4.5, 0, 2 * M_PI);
+    if (m_torProbeOnline) {
+        cairo_set_source_rgba(cr, 0.38, 0.85, 0.55, 0.95);
+        cairo_fill_preserve(cr);
+        cairo_set_source_rgba(cr, 0.38, 0.85, 0.55, 0.35);
+        cairo_set_line_width(cr, 3.0);
+        cairo_stroke(cr);
+        drawLabel(cr, dotX + 14.0, cY + 14.0, ("Tor Daemon Online (127.0.0.1:" + std::to_string(m_onionTorPort) + " reachable)").c_str(), Theme::TEXT_MAIN, 9.5f, true);
+    } else {
+        cairo_set_source_rgba(cr, 0.95, 0.45, 0.45, 0.95);
+        cairo_fill_preserve(cr);
+        cairo_set_source_rgba(cr, 0.95, 0.45, 0.45, 0.35);
+        cairo_set_line_width(cr, 3.0);
+        cairo_stroke(cr);
+        drawLabel(cr, dotX + 14.0, cY + 14.0, ("Tor Daemon Offline (127.0.0.1:" + std::to_string(m_onionTorPort) + " unreachable)").c_str(), Theme::TEXT_MUTED, 9.5f, true);
+    }
+
+    cY += statCardH + 16.0;
+
+    // Embedded Monospace Terminal Console (#tor-term-log)
+    auto logs = Core::TorProvisioner::instance().getLogs();
+    double termHeaderH = 26.0;
+    double termBodyH = 80.0;
+    double termTotalH = termHeaderH + termBodyH;
+
+    m_termConsoleX = x;
+    m_termConsoleY = cY - scrollY;
+    m_termConsoleW = w;
+    m_termConsoleH = termTotalH;
+
+    rr(cr, x, cY, w, termTotalH, 6.0);
+    cairo_set_source_rgb(cr, 0.05, 0.06, 0.08); // deep terminal background #0d0f14
+    cairo_fill_preserve(cr);
+    cairo_set_source_rgba(cr, 0.22, 0.26, 0.34, 0.65);
+    cairo_set_line_width(cr, 1.0);
+    cairo_stroke(cr);
+
+    // Header bar
+    cairo_save(cr);
+    rr(cr, x, cY, w, termHeaderH, 6.0);
+    cairo_clip(cr);
+    rr(cr, x, cY, w, termHeaderH, 0.0);
+    cairo_set_source_rgb(cr, 0.10, 0.12, 0.16);
+    cairo_fill(cr);
+    cairo_restore(cr);
+
+    drawLabel(cr, x + 12.0, cY + 6.0, ">_ TERMINAL OUTPUT", Theme::TEXT_DIM, 8.5f, true);
+
+    // [Clear] button (711)
+    double clrW = 46.0, clrH = 18.0;
+    double clrX = x + w - clrW - 8.0;
+    double clrY = cY + 4.0;
+    bool clrHover = (m_hoveredItem == 711);
+
+    m_termClearBtnX = clrX;
+    m_termClearBtnY = clrY - scrollY;
+    m_termClearBtnW = clrW;
+    m_termClearBtnH = clrH;
+
+    rr(cr, clrX, clrY, clrW, clrH, 3.0);
+    sc(cr, clrHover ? Theme::BG_ACTIVE : Theme::BG_SUBTLE, clrHover ? 0.9f : 0.6f);
+    cairo_fill_preserve(cr);
+    sc(cr, clrHover ? Theme::ACCENT_CALM : Theme::BORDER_SOFT, clrHover ? 0.8f : 0.3f);
+    cairo_set_line_width(cr, 1.0);
+    cairo_stroke(cr);
+    drawCenteredText(cr, clrX, clrY, clrW, clrH, "Clear", clrHover ? Theme::TEXT_MAIN : Theme::TEXT_MUTED, 8.0f, false);
+
+    // Terminal text body
+    double bodyY = cY + termHeaderH;
+    cairo_save(cr);
+    cairo_rectangle(cr, x + 1.0, bodyY, w - 2.0, termBodyH - 1.0);
+    cairo_clip(cr);
+
+    double lineH = 16.0;
+    size_t displayCount = logs.empty() ? 1 : logs.size();
+    double totalLogHeight = static_cast<double>(displayCount) * lineH + 10.0;
+    m_termLogMaxScroll = std::max(0.0, totalLogHeight - termBodyH);
+    m_termLogTargetScrollY = std::clamp(m_termLogTargetScrollY, 0.0, m_termLogMaxScroll);
+
+    double curLogY = bodyY + 6.0 - m_termLogScrollY;
+
+    PangoLayout* lMono = pango_cairo_create_layout(cr);
+    PangoFontDescription* fdMono = pango_font_description_from_string("monospace 8.0");
+    pango_layout_set_font_description(lMono, fdMono);
+    pango_font_description_free(fdMono);
+
+    if (logs.empty()) {
+        cairo_set_source_rgb(cr, 0.50, 0.55, 0.62);
+        pango_layout_set_text(lMono, "> Subsystem idle. Click 'Check status now' to verify Tor daemon.", -1);
+        cairo_move_to(cr, x + 10.0, curLogY);
+        pango_cairo_show_layout(cr, lMono);
+    } else {
+        for (const auto& line : logs) {
+            if (curLogY + lineH >= bodyY && curLogY <= bodyY + termBodyH) {
+                if (line.find("[OK]") != std::string::npos) {
+                    cairo_set_source_rgb(cr, 0.29, 0.87, 0.50); // green
+                } else if (line.find("[ERR]") != std::string::npos || line.find("failed") != std::string::npos || line.find("Error") != std::string::npos) {
+                    cairo_set_source_rgb(cr, 0.97, 0.44, 0.44); // red
+                } else if (line.find("[INFO]") != std::string::npos) {
+                    cairo_set_source_rgb(cr, 0.22, 0.74, 0.97); // cyan
+                } else if (line.rfind("===", 0) == 0) {
+                    cairo_set_source_rgb(cr, 0.98, 0.75, 0.14); // amber
+                } else {
+                    cairo_set_source_rgb(cr, 0.80, 0.84, 0.88); // slate
+                }
+
+                pango_layout_set_text(lMono, line.c_str(), -1);
+                cairo_move_to(cr, x + 10.0, curLogY);
+                pango_cairo_show_layout(cr, lMono);
+            }
+            curLogY += lineH;
+        }
+    }
+    g_object_unref(lMono);
+
+    // Terminal scrollbar thumb
+    if (m_termLogMaxScroll > 0.0) {
+        double sbTrackH = termBodyH - 8.0;
+        double sbThumbH = std::max(16.0, sbTrackH * (termBodyH / totalLogHeight));
+        double sbThumbY = bodyY + 4.0 + (sbTrackH - sbThumbH) * (m_termLogScrollY / m_termLogMaxScroll);
+        rr(cr, x + w - 7.0, sbThumbY, 4.0, sbThumbH, 2.0);
+        cairo_set_source_rgba(cr, 1.0, 1.0, 1.0, 0.25);
+        cairo_fill(cr);
+    }
+
+    cairo_restore(cr);
+
+    cY += termTotalH + 16.0;
+
+    // Security Guarantees / Architecture Card
+    double secCardH = 92.0;
+    rr(cr, x, cY, w, secCardH, 6.0);
+    sc(cr, Theme::BG_SURFACE, 0.85f);
+    cairo_fill_preserve(cr);
+    sc(cr, Theme::BORDER_SOFT, 0.25f);
+    cairo_set_line_width(cr, 1.0);
+    cairo_stroke(cr);
+
+    drawLabel(cr, x + 14.0, cY + 10.0, "Security Guarantees & Isolation", Theme::TEXT_MAIN, 9.5f, true);
+    drawLabel(cr, x + 14.0, cY + 28.0, "\xE2\x80\xA2 Ephemeral Context: Non-persistent memory-only store (zero disk cache or cookies)", Theme::TEXT_DIM, 8.5f);
+    drawLabel(cr, x + 14.0, cY + 46.0, "\xE2\x80\xA2 Leak Prevention: Remote SOCKS5h DNS resolution (no UDP 53 leak), WebRTC & Geo disabled", Theme::TEXT_DIM, 8.5f);
+    drawLabel(cr, x + 14.0, cY + 64.0, "\xE2\x80\xA2 Cross-Context Isolation: Links between .onion and clearnet spawn separated tabs", Theme::TEXT_DIM, 8.5f);
+
+    cY += secCardH + 18.0;
+
+    // Track total content height for section scrolling
+    double totalSectionHeight = cY - y;
+    m_torSectionMaxScroll = std::max(0.0f, static_cast<float>(totalSectionHeight - h));
+
+    // Section scrollbar
+    if (m_torSectionMaxScroll > 0.0f) {
+        double trackH = h - 16.0;
+        double thumbH = std::max(24.0, trackH * (h / totalSectionHeight));
+        double thumbY = y + 8.0 + (trackH - thumbH) * (m_torSectionScrollY / m_torSectionMaxScroll);
+        rr(cr, x + w - 4.0, thumbY + scrollY, 4.0, thumbH, 2.0);
+        cairo_set_source_rgba(cr, 1.0, 1.0, 1.0, 0.30);
+        cairo_fill(cr);
+    }
+
+    cairo_restore(cr);
+}
+
 void SettingsPanel::drawDeleteConfirmModal(cairo_t* cr, double winW, double winH) {
     if (m_deleteConfirmModalAlpha < 0.002f) return;
 
@@ -1734,8 +2210,8 @@ void SettingsPanel::drawLumenThresholdModal(cairo_t* cr, double winW, double win
 }
 
 void SettingsPanel::drawSidebar(cairo_t* cr, double x, double y, double w, double h) {
-    static const char* tabs[] = { "Animations", "Appearance", "Search", "Compatibility", "AI Core" };
-    int nTabs = 5;
+    static const char* tabs[] = { "Animations", "Appearance", "Search", "Compatibility", "Privacy & Tor", "AI Core" };
+    int nTabs = 6;
     double tabH = 36.0, gap = 4.0;
     double tabStartY = y + 8.0;
 
@@ -1786,7 +2262,8 @@ void SettingsPanel::drawContent(cairo_t* cr, double x, double y, double w, doubl
     else if (section == 1) drawAppearanceSection(cr, cX, cY, cW, h - 32);
     else if (section == 2) drawSearchSection(cr, cX, cY, cW);
     else if (section == 3) drawCompatibilitySection(cr, cX, cY, cW);
-    else if (section == 4) drawComingSoon(cr, cX, cY, "AI Core");
+    else if (section == 4) drawTorSection(cr, cX, cY, cW, h - 32);
+    else if (section == 5) drawComingSoon(cr, cX, cY, "AI Core");
 
     cairo_restore(cr);
 }
@@ -2069,11 +2546,11 @@ bool SettingsPanel::handleMouseMove(double mx, double my) {
     double cX = m_px + m_pw - 22, cY = m_py + 22;
     if (std::hypot(mx - cX, my - cY) <= 12) { m_hoveredItem = 9999; }
 
-    // sidebar tabs (5 tabs)
+    // sidebar tabs (6 tabs)
     double bodyY = m_py + 44;
     double tabH = 36.0, gap = 4.0;
     double tabStartY = bodyY + 8;
-    for (int i = 0; i < 5; ++i) {
+    for (int i = 0; i < 6; ++i) {
         double ty = tabStartY + i * (tabH + gap);
         if (mx >= m_px + 5 && mx <= m_px + 125 && my >= ty && my <= ty + tabH) {
             m_hoveredItem = 1000 + i;
@@ -2138,6 +2615,29 @@ bool SettingsPanel::handleMouseMove(double mx, double my) {
         if (mx >= m_uaTriggerX && mx <= m_uaTriggerX + m_uaTriggerW &&
             my >= m_uaTriggerY && my <= m_uaTriggerY + m_uaTriggerH) {
             m_hoveredItem = 600;
+        }
+    }
+
+    // privacy & tor section hitboxes
+    if (m_section == 4) {
+        if (mx >= m_termClearBtnX && mx <= m_termClearBtnX + m_termClearBtnW &&
+            my >= m_termClearBtnY && my <= m_termClearBtnY + m_termClearBtnH) {
+            m_hoveredItem = 711;
+        } else if (mx >= m_warningLinkX && mx <= m_warningLinkX + m_warningLinkW &&
+                   my >= m_warningLinkY && my <= m_warningLinkY + m_warningLinkH) {
+            m_hoveredItem = 710;
+        } else if (mx >= m_torToggleCardX && mx <= m_torToggleCardX + m_torToggleCardW &&
+                   my >= m_torToggleCardY && my <= m_torToggleCardY + m_torToggleCardH) {
+            m_hoveredItem = 700;
+        } else if (mx >= m_torPort9050X && mx <= m_torPort9050X + m_torPort9050W &&
+                   my >= m_torPort9050Y && my <= m_torPort9050Y + m_torPort9050H) {
+            m_hoveredItem = 701;
+        } else if (mx >= m_torPort9150X && mx <= m_torPort9150X + m_torPort9150W &&
+                   my >= m_torPort9150Y && my <= m_torPort9150Y + m_torPort9150H) {
+            m_hoveredItem = 702;
+        } else if (mx >= m_termConsoleX && mx <= m_termConsoleX + m_termConsoleW &&
+                   my >= m_termConsoleY && my <= m_termConsoleY + m_termConsoleH) {
+            m_hoveredItem = 712;
         }
     }
 
@@ -2327,11 +2827,11 @@ bool SettingsPanel::handleMouseDown(double mx, double my) {
         return true;
     }
 
-    // sidebar navigation tabs (5 tabs)
+    // sidebar navigation tabs (6 tabs)
     double bodyY = m_py + 44;
     double tabH = 36.0, gap = 4.0;
     double tabStartY = bodyY + 8;
-    for (int i = 0; i < 5; ++i) {
+    for (int i = 0; i < 6; ++i) {
         double ty = tabStartY + i * (tabH + gap);
         if (mx >= m_px + 5 && mx <= m_px + 125 && my >= ty && my <= ty + tabH) {
             m_searchDropdownOpen = false;
@@ -2428,6 +2928,46 @@ bool SettingsPanel::handleMouseDown(double mx, double my) {
         }
     }
 
+    // privacy & tor section: toggle, warning trigger, clear, and port buttons
+    if (m_section == 4) {
+        // Clear terminal logs
+        if (mx >= m_termClearBtnX && mx <= m_termClearBtnX + m_termClearBtnW &&
+            my >= m_termClearBtnY && my <= m_termClearBtnY + m_termClearBtnH) {
+            Core::TorProvisioner::instance().clearLogs();
+            return true;
+        }
+
+        // Inline warning trigger: "Check status now."
+        if (mx >= m_warningLinkX && mx <= m_warningLinkX + m_warningLinkW &&
+            my >= m_warningLinkY && my <= m_warningLinkY + m_warningLinkH) {
+            Core::TorProvisioner::instance().checkOrProvision(m_onionTorPort, true);
+            return true;
+        }
+
+        // Toggle onion routing
+        if (mx >= m_torToggleCardX && mx <= m_torToggleCardX + m_torToggleCardW &&
+            my >= m_torToggleCardY && my <= m_torToggleCardY + m_torToggleCardH) {
+            setOnionRoutingEnabled(!m_onionRoutingEnabled);
+            return true;
+        }
+
+        // SOCKS5 Port 9050
+        if (mx >= m_torPort9050X && mx <= m_torPort9050X + m_torPort9050W &&
+            my >= m_torPort9050Y && my <= m_torPort9050Y + m_torPort9050H) {
+            setOnionTorPort(9050);
+            m_torProbeOnline = Core::TorBridge::probeTorDaemon(9050, 80);
+            return true;
+        }
+
+        // SOCKS5 Port 9150
+        if (mx >= m_torPort9150X && mx <= m_torPort9150X + m_torPort9150W &&
+            my >= m_torPort9150Y && my <= m_torPort9150Y + m_torPort9150H) {
+            setOnionTorPort(9150);
+            m_torProbeOnline = Core::TorBridge::probeTorDaemon(9150, 80);
+            return true;
+        }
+    }
+
     return true; // absorb clicks while panel is open
 }
 
@@ -2447,6 +2987,21 @@ bool SettingsPanel::handleScroll(double dy) {
             double step = 38.0;
             m_appearanceTargetScrollY += static_cast<float>(dy * step);
             m_appearanceTargetScrollY = std::clamp(m_appearanceTargetScrollY, 0.0f, m_appearanceMaxScroll);
+            return true;
+        }
+    } else if (m_section == 4) { // Privacy & Tor section
+        // If mouse is inside terminal console, scroll the terminal!
+        if (m_hoveredItem == 712 && m_termLogMaxScroll > 0.0) {
+            double step = 28.0;
+            m_termLogTargetScrollY += dy * step;
+            m_termLogTargetScrollY = std::clamp(m_termLogTargetScrollY, 0.0, m_termLogMaxScroll);
+            return true;
+        }
+        // Otherwise scroll the entire Tor section
+        if (m_torSectionMaxScroll > 0.0f) {
+            double step = 38.0;
+            m_torSectionTargetScrollY += static_cast<float>(dy * step);
+            m_torSectionTargetScrollY = std::clamp(m_torSectionTargetScrollY, 0.0f, m_torSectionMaxScroll);
             return true;
         }
     }

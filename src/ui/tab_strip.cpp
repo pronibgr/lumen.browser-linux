@@ -131,38 +131,138 @@ void TabStrip::update(float dt) {
     float cursorFactor = 1.0f - std::exp(-24.0f * dt);
     m_cursorX += (m_cursorTargetX - m_cursorX) * cursorFactor;
     m_cursorW += (m_cursorTargetW - m_cursorW) * cursorFactor;
+
+    m_animTime += dt;
 }
 
 void TabStrip::drawTab(cairo_t* cr, double x, double y, double w, double h,
                        int idx, bool active, bool hovered, bool closeHov,
-                       const std::string& title, float closeFade) {
+                       const std::string& title, float closeFade,
+                       bool isOnion, bool isLoading) {
     (void)idx;
     if (closeFade <= 0.01f || w < 20.0) return;
 
     cairo_push_group(cr);
 
-    // tab body pill
+    // 1. Tab body pill
     rr(cr, x, y, w, h, 7);
-    if (active) {
-        sc(cr, Theme::BG_ACTIVE);
-    } else if (hovered) {
-        sc(cr, Theme::BG_SUBTLE, 0.9f);
+    if (isOnion) {
+        if (active) {
+            cairo_set_source_rgb(cr, 0.035, 0.063, 0.102); // #09101A (cold deep obsidian)
+        } else if (hovered) {
+            cairo_set_source_rgb(cr, 0.063, 0.102, 0.157); // #101A28
+        } else {
+            cairo_set_source_rgb(cr, 0.047, 0.078, 0.125); // #0C1420
+        }
     } else {
-        sc(cr, Theme::BG_SUBTLE, 0.45f);
+        if (active) {
+            sc(cr, Theme::BG_ACTIVE);
+        } else if (hovered) {
+            sc(cr, Theme::BG_SUBTLE, 0.9f);
+        } else {
+            sc(cr, Theme::BG_SUBTLE, 0.45f);
+        }
     }
     cairo_fill_preserve(cr);
 
-    // subtle outline border
-    sc(cr, Theme::BORDER_SOFT, active ? 0.7f : 0.3f);
-    cairo_set_line_width(cr, 1.0);
+    // 2. Subtle outline border
+    if (isOnion) {
+        if (active) {
+            cairo_set_source_rgba(cr, 0.35, 0.65, 1.0, 0.70); // #58a6ff
+            cairo_set_line_width(cr, 1.0);
+        } else {
+            cairo_set_source_rgba(cr, 0.48, 0.64, 0.97, 0.28);
+            cairo_set_line_width(cr, 1.0);
+        }
+    } else {
+        sc(cr, Theme::BORDER_SOFT, active ? 0.7f : 0.3f);
+        cairo_set_line_width(cr, 1.0);
+    }
     cairo_stroke(cr);
 
-    // tab title text with ellipsize
-    double textX = x + 10;
-    double textW = w - 34;
+    // 3. Tor 3-segment circuit rail at the top (if onion)
+    if (isOnion && w >= 36.0) {
+        double railX = x + 6.0;
+        double railW = w - 12.0;
+        double segW = (railW - 5.0) / 3.0; // 3 segments with 2.5 gap
+        double railY = y + 1.0;
+        double segH = 2.0;
+
+        float pulse = std::fmod(m_animTime, 1.2f) / 1.2f;
+
+        for (int s = 0; s < 3; ++s) {
+            double sx = railX + s * (segW + 2.5);
+            rr(cr, sx, railY, segW, segH, 1.0);
+
+            if (isLoading) {
+                // Traveling circuit pulse animation
+                float segPhase = s * 0.2f;
+                float diff = std::fabs(pulse - segPhase);
+                if (diff > 0.5f) diff = 1.0f - diff;
+                float intensity = std::clamp(1.0f - diff / 0.25f, 0.0f, 1.0f);
+                cairo_set_source_rgba(cr, 0.48, 0.64, 0.97, 0.20 + 0.80 * intensity);
+            } else if (active) {
+                cairo_set_source_rgba(cr, 0.48, 0.64, 0.97, 0.85);
+            } else {
+                cairo_set_source_rgba(cr, 0.48, 0.64, 0.97, 0.25);
+            }
+            cairo_fill(cr);
+        }
+    }
+
+    // 4. Onion Glyph icon if onion tab
+    double iconOffset = 0.0;
+    if (isOnion && w >= 44.0) {
+        double gx = x + 10.0;
+        double gy = y + (h - 12.0) / 2.0;
+        double cx = gx + 6.0;
+        double cy = gy + 6.8;
+
+        cairo_save(cr);
+        cairo_set_source_rgba(cr, 0.48, 0.64, 0.97, active ? 1.0 : 0.75); // #7aa2f7
+        cairo_set_line_width(cr, 1.1);
+
+        // Outer contour
+        cairo_new_path(cr);
+        cairo_arc(cr, cx, cy, 4.4, 0, 2 * M_PI);
+        cairo_stroke(cr);
+
+        // Inner dashed ring
+        const double dashes[] = { 2.0, 1.2 };
+        cairo_set_dash(cr, dashes, 2, 0);
+        cairo_new_path(cr);
+        cairo_arc(cr, cx, cy + 0.2, 2.6, 0, 2 * M_PI);
+        cairo_stroke(cr);
+        cairo_set_dash(cr, nullptr, 0, 0);
+
+        // Center core
+        cairo_new_path(cr);
+        cairo_arc(cr, cx, cy + 0.4, 0.9, 0, 2 * M_PI);
+        cairo_fill(cr);
+
+        // Neck sprout
+        cairo_new_path(cr);
+        cairo_move_to(cr, cx, cy - 4.4); cairo_line_to(cr, cx, cy - 6.2);
+        cairo_move_to(cr, cx - 1.5, cy - 5.5); cairo_line_to(cr, cx, cy - 6.2); cairo_line_to(cr, cx + 1.5, cy - 5.5);
+        cairo_stroke(cr);
+
+        cairo_restore(cr);
+
+        iconOffset = 16.0;
+    }
+
+    // 5. Tab title text with ellipsize
+    double textX = x + 10.0 + iconOffset;
+    double textW = w - 34.0 - iconOffset;
     if (textW > 12) {
         PangoLayout* layout = pango_cairo_create_layout(cr);
-        PangoFontDescription* fd = pango_font_description_from_string(active ? "Inter SemiBold 10" : "Inter 10");
+        std::string fontName;
+        if (isOnion) {
+            fontName = active ? "JetBrains Mono SemiBold 9.5" : "JetBrains Mono 9.5";
+        } else {
+            fontName = active ? "Inter SemiBold 10" : "Inter 10";
+        }
+        PangoFontDescription* fd = pango_font_description_from_string(fontName.c_str());
         pango_layout_set_font_description(layout, fd);
         pango_font_description_free(fd);
         pango_layout_set_width(layout, static_cast<int>(textW * PANGO_SCALE));
@@ -170,18 +270,22 @@ void TabStrip::drawTab(cairo_t* cr, double x, double y, double w, double h,
         pango_layout_set_single_paragraph_mode(layout, TRUE);
 
         std::string t = cleanUtf8(title);
-        if (t.empty()) t = "New Tab";
+        if (t.empty()) t = isOnion ? "Onion Service" : "New Tab";
         pango_layout_set_text(layout, t.c_str(), -1);
 
         int th = 0;
         pango_layout_get_pixel_size(layout, nullptr, &th);
-        sc(cr, active ? Theme::TEXT_MAIN : Theme::TEXT_MUTED);
+        if (isOnion) {
+            cairo_set_source_rgb(cr, 0.86, 0.92, 0.99); // #dbeafe
+        } else {
+            sc(cr, active ? Theme::TEXT_MAIN : Theme::TEXT_MUTED);
+        }
         cairo_move_to(cr, textX, y + (h - th) / 2.0);
         pango_cairo_show_layout(cr, layout);
         g_object_unref(layout);
     }
 
-    // Close button
+    // 6. Close button
     if ((hovered || active) && w >= 48.0) {
         double cx = x + w - 12;
         double cy = y + h / 2.0;
@@ -269,9 +373,13 @@ void TabStrip::draw(cairo_t* cr, double x, double y, double width, double height
             continue;
         }
 
+        bool isOnion = m_tabs[i] && m_tabs[i]->isOnion();
+        bool isLoading = m_tabs[i] && m_tabs[i]->isLoading();
+
         drawTab(cr, tx, tabY, curTabW, Theme::TAB_HEIGHT,
                 static_cast<int>(i), active, hovered, cHov,
-                m_tabs[i]->getTitle(), closeFade);
+                m_tabs[i]->getTitle(), closeFade,
+                isOnion, isLoading);
     }
 
     cairo_restore(cr); // restore clip

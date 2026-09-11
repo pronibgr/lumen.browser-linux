@@ -105,7 +105,11 @@ public:
     bool isUaDropdownOpen() const { return m_uaDropdownOpen; }
     void setUaDropdownOpen(bool v) { m_uaDropdownOpen = v; }
     void selectUserAgent(int index);
-    void saveActiveUserAgent();
+    void switchToSection(int s) { sectionSwitch(s); }
+    bool isOnionRoutingEnabled() const { return m_onionRoutingEnabled; }
+    void setOnionRoutingEnabled(bool v);
+    int  getOnionTorPort() const { return m_onionTorPort; }
+    void setOnionTorPort(int port);
 
     void update(float dt);
     void draw(cairo_t* cr, double winW, double winH);
@@ -254,6 +258,41 @@ private:
     void loadSavedEngines();
     void saveActiveEngine();
     void loadSavedUserAgents();
+    void saveActiveUserAgent();
+    void drawTorSection(cairo_t* cr, double x, double y, double w, double h);
+
+    bool  m_onionRoutingEnabled = false;
+    int   m_onionTorPort = 9050;
+    bool  m_torProbeOnline = false;
+    float m_torProbeTimer = 0.0f;
+
+    // Fluid animations for Privacy & Tor tab
+    float m_onionToggleAnim = 0.0f;
+    float m_torPortSliderX = 0.0f;
+    float m_torPortSliderW = 0.0f;
+    bool  m_torPortSliderInit = false;
+    float m_statusBannerAlpha = 0.0f;
+    float m_spinnerAngle = 0.0f;
+    float m_termLogHeightAnim = 0.0f;
+    float m_termLogAlpha = 0.0f;
+
+    // Terminal log view & scrolling
+    double m_termLogScrollY = 0.0;
+    double m_termLogTargetScrollY = 0.0;
+    double m_termLogMaxScroll = 0.0;
+
+    // Hitbox tracking
+    double m_torToggleCardX = 0.0, m_torToggleCardY = 0.0, m_torToggleCardW = 0.0, m_torToggleCardH = 0.0;
+    double m_torPort9050X = 0.0, m_torPort9050Y = 0.0, m_torPort9050W = 0.0, m_torPort9050H = 0.0;
+    double m_torPort9150X = 0.0, m_torPort9150Y = 0.0, m_torPort9150W = 0.0, m_torPort9150H = 0.0;
+    double m_warningLinkX = 0.0, m_warningLinkY = 0.0, m_warningLinkW = 0.0, m_warningLinkH = 0.0;
+    double m_termConsoleX = 0.0, m_termConsoleY = 0.0, m_termConsoleW = 0.0, m_termConsoleH = 0.0;
+    double m_termClearBtnX = 0.0, m_termClearBtnY = 0.0, m_termClearBtnW = 0.0, m_termClearBtnH = 0.0;
+
+    // Section vertical scrolling
+    float m_torSectionScrollY = 0.0f;
+    float m_torSectionTargetScrollY = 0.0f;
+    float m_torSectionMaxScroll = 0.0f;
 };
 
 } // namespace Blueprint::UI

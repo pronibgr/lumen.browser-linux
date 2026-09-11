@@ -2,6 +2,8 @@
 #include "theme/colors.hpp"
 #include "storage/database.hpp"
 #include "omnibox/converter.hpp"
+#include "core/tor_bridge.hpp"
+#include "core/tor_provisioner.hpp"
 #include <iostream>
 #include <fstream>
 #include <sstream>
@@ -556,6 +558,20 @@ bool BrowserWindow::initialize() {
     gtk_widget_show_all(m_window);
     gtk_widget_hide(m_overlayArea);
 
+    if (m_startUrl.find("lumen://settings") != std::string::npos) {
+        if (!m_topbar.getSettings().isVisible()) {
+            m_topbar.getSettings().toggle();
+        }
+        if (m_startUrl.find("tor") != std::string::npos) {
+            m_topbar.getSettings().switchToSection(4);
+            if (m_startUrl.find("diag") != std::string::npos) {
+                Core::TorProvisioner::instance().checkOrProvision(Core::TorBridge::getTorPort(), false);
+            }
+        }
+        gtk_widget_show(m_overlayArea);
+        gtk_widget_queue_draw(m_overlayArea);
+    }
+
     return true;
 }
 
@@ -570,6 +586,7 @@ void BrowserWindow::syncTopbar() {
     m_topbar.setNavState(tab->canGoBack(), tab->canGoForward(), tab->canReload());
     m_topbar.setTlsInfo(tab->getTlsInfo());
     m_topbar.setSiteData(tab->getSiteDataBytes(), tab->canClearData());
+    m_topbar.setOnion(tab->isOnion());
     m_topbar.setTabs(m_tabs, m_activeIdx);
     m_topbar.setLoadProgress(tab->getLoadProgress());
 }
@@ -632,6 +649,36 @@ void BrowserWindow::createTab(const std::string& url, bool switchToNewTab) {
             gtk_window_unfullscreen(GTK_WINDOW(m_window));
             gtk_widget_show(m_topbarArea);
         }
+    });
+
+    tab->setOnWebViewRecreated([this, newId](GtkWidget* oldView, GtkWidget* newView) {
+        std::string tName = "tab_" + std::to_string(newId);
+        if (oldView && gtk_widget_get_parent(oldView) == m_stack) {
+            g_object_ref(oldView);
+            gtk_container_remove(GTK_CONTAINER(m_stack), oldView);
+            g_object_unref(oldView);
+        }
+        if (newView) {
+            gtk_stack_add_named(GTK_STACK(m_stack), newView, tName.c_str());
+            gtk_widget_show_all(newView);
+            if (validActive() && m_tabs[m_activeIdx]->getId() == newId) {
+                gtk_stack_set_visible_child_name(GTK_STACK(m_stack), tName.c_str());
+            }
+        }
+    });
+
+    tab->setOnOpenSettingsRequested([this](const std::string& section) {
+        if (!m_topbar.getSettings().isVisible()) {
+            m_topbar.getSettings().toggle();
+        }
+        if (section == "tor") {
+            m_topbar.getSettings().switchToSection(4);
+        }
+        bool overlayActive = m_topbar.isAnyOverlayActive();
+        if (overlayActive != gtk_widget_get_visible(m_overlayArea)) {
+            gtk_widget_set_visible(m_overlayArea, overlayActive);
+        }
+        gtk_widget_queue_draw(m_overlayArea);
     });
 
     if (switchToNewTab) {

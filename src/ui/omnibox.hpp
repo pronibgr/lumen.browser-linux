@@ -26,6 +26,8 @@ public:
     const std::string& getSearchTemplate() const { return m_searchTemplate; }
     void setEphemeral(bool ephem) { m_isEphemeral = ephem; }
     bool isEphemeral() const { return m_isEphemeral; }
+    void setOnion(bool v) { m_isOnion = v; }
+    bool isOnion() const { return m_isOnion; }
 
     void draw        (cairo_t* cr, double x, double y, double w, double h);
     void drawPopup   (cairo_t* cr, double x, double y, double w);
@@ -52,6 +54,7 @@ public:
 
 private:
     bool m_isEphemeral = false;
+    bool m_isOnion     = false;
     std::string m_displayUrl;      // shown when unfocused (current page URL)
     std::string m_text;            // editable text when focused
     int m_cursorPos = 0;

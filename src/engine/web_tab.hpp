@@ -109,10 +109,18 @@ public:
     static void executeMprisCommand(const std::string& action, double param);
     void handleMediaScriptMessage(const std::string& messageJson);
 
+    // Tor / .onion support
+    bool isOnion() const { return m_isOnion; }
+    void setOnOpenSettingsRequested(std::function<void(const std::string& section)> cb) { m_onOpenSettingsRequested = cb; }
+    void setOnWebViewRecreated(std::function<void(GtkWidget* oldView, GtkWidget* newView)> cb) { m_onWebViewRecreated = cb; }
+
+    void recreateWebView(WebKitWebContext* context, bool isOnion);
+
 private:
     int  m_id = 0;
     bool m_isEphemeral = false;
     bool m_isErrorPage = false;
+    bool m_isOnion = false;
     std::string m_failedUri;
     std::string m_url;
     std::string m_title;
@@ -137,10 +145,15 @@ private:
     std::function<void(uint64_t)>           m_onSiteDataChanged;
     std::function<void(const std::string&, bool)> m_onNewTabRequested;
     std::function<void(bool)>               m_onFullscreenToggled;
+    std::function<void(const std::string&)> m_onOpenSettingsRequested;
+    std::function<void(GtkWidget*, GtkWidget*)> m_onWebViewRecreated;
 
     void setupWebKitSignals();
     void loadNewTabHtml();
     void loadNullTabHtml();
+    void extractTlsInfo();
+    void handleMediaCommand(const std::string& cmd);
+    static std::string extractHost(const std::string& url);
 };
 
 } // namespace Blueprint::Engine

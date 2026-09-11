@@ -14,9 +14,13 @@
 #include "engine/null_tab_html.hpp"
 #include "engine/error_page_html.hpp"
 #include "engine/web_tab.hpp"
+#include "core/tor_bridge.hpp"
+#include "core/tor_provisioner.hpp"
 #include <SDL2/SDL_keycode.h>
 #include <glib.h>
 #include <gtk/gtk.h>
+#include <chrono>
+#include <thread>
 
 void testCalculator() {
     std::cout << "[Test] Running Calculator tests...\n";
@@ -1310,6 +1314,135 @@ void testRapidTabOperations() {
     std::cout << "  -> Rapid Tab Creation & Deletion tests PASSED!\n";
 }
 
+void testTorBridgeAndOnionRouting() {
+    std::cout << "[Test] Running Tor Bridge & Onion Routing tests...\n";
+
+    // 1. Onion URL detection
+    assert(Blueprint::Core::TorBridge::isOnionUrl("http://duckduckgogg42xjoc72x3sjasowoarfbgcmvfimaftt6twagswzczad.onion"));
+    assert(Blueprint::Core::TorBridge::isOnionUrl("https://expyuz5wqqfdgah56trnjbdwh2xtqsrfdunia824m4a58482483842884.onion/path?q=1"));
+    assert(Blueprint::Core::TorBridge::isOnionUrl("duckduckgogg42xjoc72x3sjasowoarfbgcmvfimaftt6twagswzczad.onion"));
+    assert(Blueprint::Core::TorBridge::isOnionUrl("http://portal.onion/index.html"));
+    assert(!Blueprint::Core::TorBridge::isOnionUrl("https://google.com"));
+    assert(!Blueprint::Core::TorBridge::isOnionUrl("https://wikipedia.org/wiki/Tor"));
+    assert(!Blueprint::Core::TorBridge::isOnionUrl(""));
+    assert(!Blueprint::Core::TorBridge::isOnionUrl("http://onion.com"));
+    assert(!Blueprint::Core::TorBridge::isOnionUrl("lumen://newtab"));
+
+    // 2. v3 Onion URL parser
+    auto info = Blueprint::Core::TorBridge::parseOnionV3("http://duckduckgogg42xjoc72x3sjasowoarfbgcmvfimaftt6twagswzczad.onion/search?q=test");
+    assert(info.valid);
+    assert(info.scheme == "http://");
+    assert(info.head == "duckdu");
+    assert(info.tail == "czad");
+    assert(info.dots == "…");
+    assert(info.path == "/search?q=test");
+    assert(info.host == "duckduckgogg42xjoc72x3sjasowoarfbgcmvfimaftt6twagswzczad.onion");
+
+    // 3. Settings persistence
+    bool initialSetting = Blueprint::Core::TorBridge::isTorRoutingEnabled();
+    Blueprint::Core::TorBridge::setTorRoutingEnabled(true);
+    assert(Blueprint::Core::TorBridge::isTorRoutingEnabled() == true);
+    Blueprint::Core::TorBridge::setTorPort(9150);
+    assert(Blueprint::Core::TorBridge::getTorPort() == 9150);
+    Blueprint::Core::TorBridge::setTorPort(9050);
+    assert(Blueprint::Core::TorBridge::getTorPort() == 9050);
+    Blueprint::Core::TorBridge::setTorRoutingEnabled(initialSetting);
+
+    // 4. Non-blocking daemon probe
+    auto t0 = std::chrono::steady_clock::now();
+    bool probeRes = Blueprint::Core::TorBridge::probeTorDaemon(59998, 60);
+    auto t1 = std::chrono::steady_clock::now();
+    auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
+    assert(elapsedMs < 300); // must return swiftly without blocking UI
+    (void)elapsedMs;
+    (void)probeRes;
+
+    // 5. SettingsPanel Tor section integration
+    Blueprint::UI::SettingsPanel panel;
+    panel.setOnionRoutingEnabled(true);
+    assert(panel.isOnionRoutingEnabled() == true);
+    panel.setOnionTorPort(9150);
+    assert(panel.getOnionTorPort() == 9150);
+    panel.setOnionRoutingEnabled(initialSetting);
+
+    // 6. WebTab Onion status
+    bool gtkOk = gtk_init_check(nullptr, nullptr);
+    if (gtkOk) {
+        auto tabOnion = std::make_shared<Blueprint::Engine::WebTab>(100, "lumen://onion-disabled?target=http://test.onion", "Onion Tab");
+        assert(tabOnion->isOnion());
+        auto tabClear = std::make_shared<Blueprint::Engine::WebTab>(101, "https://example.com", "Clear Tab");
+        assert(!tabClear->isOnion());
+    }
+
+    std::cout << "  -> Tor Bridge & Onion Routing tests PASSED!\n";
+}
+
+void testTorProvisioner() {
+    std::cout << "[Test] Running Tor Provisioner & Diagnostics tests...\n";
+
+    auto& prov = Blueprint::Core::TorProvisioner::instance();
+
+    // 1. Distribution detect install command
+    std::string installCmd = prov.detectInstallCommand();
+    assert(!installCmd.empty());
+    // On Arch/CachyOS, ensure pacman -S --needed is used and partial upgrade risk (pacman -Sy) is avoided
+    if (installCmd.find("pacman") != std::string::npos) {
+        assert(installCmd.find("pacman -S --noconfirm --needed tor") != std::string::npos);
+        assert(installCmd.find("pacman -Sy") == std::string::npos);
+    }
+    assert(installCmd.find("systemctl enable --now tor") != std::string::npos);
+
+    // 2. State & Log management
+    prov.clearLogs();
+    assert(prov.getState() == Blueprint::Core::ProvisionState::IDLE);
+    assert(prov.getLogs().empty());
+
+    prov.appendLog("=== Diagnostic Test Header ===");
+    prov.appendLog("[INFO] Mock Tor binary detection test");
+    prov.appendLog("[OK] Mock Socket 127.0.0.1:9050 active");
+    auto logs = prov.getLogs();
+    assert(logs.size() == 3);
+    assert(logs[0] == "=== Diagnostic Test Header ===");
+    assert(logs[1] == "[INFO] Mock Tor binary detection test");
+    assert(logs[2] == "[OK] Mock Socket 127.0.0.1:9050 active");
+
+    prov.setStatus(Blueprint::Core::ProvisionState::RUNNING, "Probing mock daemon...");
+    assert(prov.getState() == Blueprint::Core::ProvisionState::RUNNING);
+    assert(prov.getStatusMessage() == "Probing mock daemon...");
+
+    prov.setStatus(Blueprint::Core::ProvisionState::SUCCESS, "Mock daemon ready.");
+    assert(prov.getState() == Blueprint::Core::ProvisionState::SUCCESS);
+    assert(prov.getStatusMessage() == "Mock daemon ready.");
+
+    prov.clearLogs();
+    assert(prov.getLogs().empty());
+    assert(prov.getState() == Blueprint::Core::ProvisionState::IDLE);
+
+    // 3. Verification Phase (read-only probe without auto-install on unused port)
+    prov.checkOrProvision(59996, false);
+    int waitLimit = 50;
+    while (prov.isRunning() && waitLimit-- > 0) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    assert(!prov.isRunning());
+    auto finishState = prov.getState();
+    assert(finishState == Blueprint::Core::ProvisionState::ERROR || finishState == Blueprint::Core::ProvisionState::SUCCESS);
+    (void)finishState;
+    assert(!prov.getLogs().empty());
+
+    // Clean up
+    prov.clearLogs();
+
+    // 4. UI SettingsPanel interaction with section 4
+    Blueprint::UI::SettingsPanel panel;
+    panel.switchToSection(4);
+    panel.handleMouseMove(100.0, 100.0);
+    panel.handleScroll(1.0);
+    panel.handleScroll(-1.0);
+
+    std::cout << "  -> Tor Provisioner & Diagnostics tests PASSED!\n";
+}
+
 int main() {
     std::cout << "========================================\n";
     std::cout << " lumen browser Unit Tests\n";
@@ -1336,6 +1469,8 @@ int main() {
     testMediaWidgetSmoothTransitionsAndRoundedControls();
     testWindowControlsAndRow2Layout();
     testRapidTabOperations();
+    testTorBridgeAndOnionRouting();
+    testTorProvisioner();
 
     std::cout << "========================================\n";
     std::cout << " ALL UNIT TESTS PASSED SUCCESSFULLY! ✅\n";

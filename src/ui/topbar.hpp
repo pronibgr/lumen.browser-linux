@@ -28,6 +28,8 @@ public:
         m_omnibox.setEphemeral(ephem);
     }
     bool isEphemeral() const { return m_isEphemeral; }
+    void setOnion(bool v);
+    bool isOnion() const { return m_isOnion; }
 
     TabStrip&      getTabStrip()    { return m_tabStrip; }
     OmniboxWidget& getOmnibox()     { return m_omnibox; }
@@ -68,6 +70,7 @@ public:
 
 private:
     bool          m_isEphemeral = false;
+    bool          m_isOnion     = false;
     TabStrip      m_tabStrip;
     OmniboxWidget m_omnibox;
     NeonProgress  m_neonProgress;

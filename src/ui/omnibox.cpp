@@ -9,6 +9,7 @@
 #include "omnibox/calc_parser.hpp"
 #include "omnibox/converter.hpp"
 #include "storage/database.hpp"
+#include "core/tor_bridge.hpp"
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_keycode.h>
 #include <gtk/gtk.h>
@@ -40,6 +41,18 @@ std::string cleanUtf8(const std::string& s) {
         if (c >= 0x20 || c == '\t' || c >= 0x80) o += s[i];
     }
     return o;
+}
+
+static std::string escapePangoXml(const std::string& str) {
+    std::string out;
+    out.reserve(str.size() * 2);
+    for (char c : str) {
+        if (c == '&') out += "&amp;";
+        else if (c == '<') out += "&lt;";
+        else if (c == '>') out += "&gt;";
+        else out += c;
+    }
+    return out;
 }
 
 } // anonymous namespace
@@ -210,13 +223,33 @@ void OmniboxWidget::draw(cairo_t* cr, double x, double y, double w, double h) {
     double textW = w - 44;
 
     PangoLayout* layout = pango_cairo_create_layout(cr);
-    PangoFontDescription* fd = pango_font_description_from_string("Inter 10");
-    pango_layout_set_font_description(layout, fd);
-    pango_font_description_free(fd);
-    pango_layout_set_width(layout, static_cast<int>(textW * PANGO_SCALE));
-    pango_layout_set_ellipsize(layout, PANGO_ELLIPSIZE_END);
-    pango_layout_set_single_paragraph_mode(layout, TRUE);
-    pango_layout_set_text(layout, displayText.c_str(), -1);
+    bool useOnionMarkup = (!m_focused && !isPlaceholder && (m_isOnion || Core::TorBridge::isOnionUrl(displayText)));
+    auto v3 = useOnionMarkup ? Core::TorBridge::parseOnionV3(displayText) : Core::TorBridge::OnionV3Parts{};
+
+    if (useOnionMarkup && v3.isV3) {
+        PangoFontDescription* fd = pango_font_description_from_string("JetBrains Mono 9.5");
+        pango_layout_set_font_description(layout, fd);
+        pango_font_description_free(fd);
+        pango_layout_set_width(layout, static_cast<int>(textW * PANGO_SCALE));
+        pango_layout_set_ellipsize(layout, PANGO_ELLIPSIZE_END);
+        pango_layout_set_single_paragraph_mode(layout, TRUE);
+
+        std::string markup = "<span foreground=\"#64748B\">" + escapePangoXml(v3.proto) + "</span>"
+                           + "<span foreground=\"#FFFFFF\" weight=\"bold\">" + escapePangoXml(v3.head) + "</span>"
+                           + "<span foreground=\"#4A5A72\">" + escapePangoXml(v3.body) + "</span>"
+                           + "<span foreground=\"#E2E8F0\">" + escapePangoXml(v3.tail) + "</span>"
+                           + " <span background=\"#18263D\" foreground=\"#7AA2F7\" weight=\"bold\">" + escapePangoXml(v3.tld) + "</span>"
+                           + "<span foreground=\"#94A3B8\">" + escapePangoXml(v3.path) + "</span>";
+        pango_layout_set_markup(layout, markup.c_str(), -1);
+    } else {
+        PangoFontDescription* fd = pango_font_description_from_string((m_isOnion || useOnionMarkup) ? "JetBrains Mono 9.5" : "Inter 10");
+        pango_layout_set_font_description(layout, fd);
+        pango_font_description_free(fd);
+        pango_layout_set_width(layout, static_cast<int>(textW * PANGO_SCALE));
+        pango_layout_set_ellipsize(layout, PANGO_ELLIPSIZE_END);
+        pango_layout_set_single_paragraph_mode(layout, TRUE);
+        pango_layout_set_text(layout, displayText.c_str(), -1);
+    }
 
     int tw = 0, th = 0;
     pango_layout_get_pixel_size(layout, &tw, &th);

@@ -2,6 +2,8 @@
 #include "engine/new_tab_html.hpp"
 #include "engine/null_tab_html.hpp"
 #include "engine/error_page_html.hpp"
+#include "engine/onion_blocked_html.hpp"
+#include "core/tor_bridge.hpp"
 #include <algorithm>
 #include <iostream>
 #include <openssl/x509.h>
@@ -57,16 +59,7 @@ static uint64_t getCookieBytesForHost(const std::string& host) {
     return bytes;
 }
 
-std::string extractHost(const std::string& url) {
-    std::string u = url;
-    size_t p = u.find("://");
-    if (p != std::string::npos) u = u.substr(p + 3);
-    size_t slash = u.find('/');
-    if (slash != std::string::npos) u = u.substr(0, slash);
-    size_t colon = u.find(':');
-    if (colon != std::string::npos) u = u.substr(0, colon);
-    return u;
-}
+
 
 std::string extractIssuerFromPem(const std::string& pemStr) {
     if (pemStr.empty()) return "";
@@ -179,6 +172,17 @@ static std::string detectSystemProxyUri() {
 
 } // anonymous namespace
 
+std::string WebTab::extractHost(const std::string& url) {
+    std::string u = url;
+    size_t p = u.find("://");
+    if (p != std::string::npos) u = u.substr(p + 3);
+    size_t slash = u.find('/');
+    if (slash != std::string::npos) u = u.substr(0, slash);
+    size_t colon = u.find(':');
+    if (colon != std::string::npos) u = u.substr(0, colon);
+    return u;
+}
+
 static std::string s_defaultUserAgent = "";
 
 void WebTab::setDefaultUserAgent(const std::string& ua) {
@@ -266,21 +270,33 @@ static WebKitWebContext* getSharedWebContext() {
 WebTab::WebTab(int id, const std::string& url, const std::string& title, WebKitWebContext* context, bool isEphemeral)
     : m_id(id), m_isEphemeral(isEphemeral), m_url(url), m_title(title) {
 
+    bool isTargetOnion = Core::TorBridge::isOnionUrl(url);
+    if (isTargetOnion && Core::TorBridge::isTorRoutingEnabled()) {
+        m_isOnion = true;
+    }
+
     WebKitSettings* settings = webkit_settings_new();
     webkit_settings_set_hardware_acceleration_policy(settings, WEBKIT_HARDWARE_ACCELERATION_POLICY_ON_DEMAND);
     webkit_settings_set_enable_javascript(settings, TRUE);
     webkit_settings_set_enable_developer_extras(settings, TRUE);
     webkit_settings_set_enable_webgl(settings, TRUE);
     webkit_settings_set_enable_smooth_scrolling(settings, TRUE);
-    webkit_settings_set_enable_page_cache(settings, m_isEphemeral ? FALSE : TRUE);
+    webkit_settings_set_enable_page_cache(settings, (m_isEphemeral || m_isOnion) ? FALSE : TRUE);
 
-    // enable media streaming and HTML5 audio/video features (MSE, EME, WebRTC, Fullscreen)
-    webkit_settings_set_enable_media(settings, TRUE);
-    webkit_settings_set_enable_mediasource(settings, TRUE);
-    webkit_settings_set_enable_media_capabilities(settings, TRUE);
-    webkit_settings_set_enable_media_stream(settings, TRUE);
-    webkit_settings_set_enable_webaudio(settings, TRUE);
-    webkit_settings_set_enable_webrtc(settings, TRUE);
+    if (m_isOnion) {
+        // Tor Security Lockdown
+        webkit_settings_set_enable_webrtc(settings, FALSE);
+        webkit_settings_set_enable_dns_prefetching(settings, FALSE);
+        webkit_settings_set_enable_hyperlink_auditing(settings, FALSE);
+        webkit_settings_set_enable_media_stream(settings, FALSE);
+    } else {
+        webkit_settings_set_enable_media(settings, TRUE);
+        webkit_settings_set_enable_mediasource(settings, TRUE);
+        webkit_settings_set_enable_media_capabilities(settings, TRUE);
+        webkit_settings_set_enable_media_stream(settings, TRUE);
+        webkit_settings_set_enable_webaudio(settings, TRUE);
+        webkit_settings_set_enable_webrtc(settings, TRUE);
+    }
     webkit_settings_set_enable_encrypted_media(settings, TRUE);
     webkit_settings_set_enable_site_specific_quirks(settings, TRUE);
     webkit_settings_set_enable_fullscreen(settings, TRUE);
@@ -328,7 +344,14 @@ WebTab::WebTab(int id, const std::string& url, const std::string& title, WebKitW
     webkit_user_style_sheet_unref(cornerStyle);
 
     m_ucm = ucm;
-    WebKitWebContext* webCtx = context ? context : getSharedWebContext();
+    WebKitWebContext* webCtx = context;
+    if (!webCtx) {
+        if (m_isOnion) {
+            webCtx = Core::TorBridge::getTorWebContext(Core::TorBridge::getTorPort());
+        } else {
+            webCtx = getSharedWebContext();
+        }
+    }
 
     m_webView = GTK_WIDGET(g_object_new(WEBKIT_TYPE_WEB_VIEW,
         "web-context", webCtx,
@@ -347,6 +370,120 @@ WebTab::WebTab(int id, const std::string& url, const std::string& title, WebKitW
     loadUrl(url);
 }
 
+void WebTab::recreateWebView(WebKitWebContext* context, bool isOnion) {
+    if (m_isOnion == isOnion && m_webView) {
+        return;
+    }
+
+    GtkWidget* oldView = m_webView;
+    WebKitUserContentManager* oldUcm = m_ucm;
+
+    if (oldView && WEBKIT_IS_WEB_VIEW(oldView)) {
+        g_signal_handlers_disconnect_by_data(oldView, this);
+        webkit_web_view_stop_loading(WEBKIT_WEB_VIEW(oldView));
+    }
+    if (oldUcm) {
+        g_signal_handlers_disconnect_by_data(oldUcm, this);
+        webkit_user_content_manager_unregister_script_message_handler(oldUcm, "lumenMedia");
+    }
+
+    m_isOnion = isOnion;
+
+    WebKitSettings* settings = webkit_settings_new();
+    webkit_settings_set_hardware_acceleration_policy(settings, WEBKIT_HARDWARE_ACCELERATION_POLICY_ON_DEMAND);
+    webkit_settings_set_enable_javascript(settings, TRUE);
+    webkit_settings_set_enable_developer_extras(settings, TRUE);
+    webkit_settings_set_enable_webgl(settings, TRUE);
+    webkit_settings_set_enable_smooth_scrolling(settings, TRUE);
+    webkit_settings_set_enable_page_cache(settings, (m_isEphemeral || m_isOnion) ? FALSE : TRUE);
+
+    if (m_isOnion) {
+        webkit_settings_set_enable_webrtc(settings, FALSE);
+        webkit_settings_set_enable_dns_prefetching(settings, FALSE);
+        webkit_settings_set_enable_hyperlink_auditing(settings, FALSE);
+        webkit_settings_set_enable_media_stream(settings, FALSE);
+    } else {
+        webkit_settings_set_enable_media(settings, TRUE);
+        webkit_settings_set_enable_mediasource(settings, TRUE);
+        webkit_settings_set_enable_media_capabilities(settings, TRUE);
+        webkit_settings_set_enable_media_stream(settings, TRUE);
+        webkit_settings_set_enable_webaudio(settings, TRUE);
+        webkit_settings_set_enable_webrtc(settings, TRUE);
+    }
+    webkit_settings_set_enable_encrypted_media(settings, TRUE);
+    webkit_settings_set_enable_site_specific_quirks(settings, TRUE);
+    webkit_settings_set_enable_fullscreen(settings, TRUE);
+    webkit_settings_set_media_playback_allows_inline(settings, TRUE);
+    webkit_settings_set_media_playback_requires_user_gesture(settings, FALSE);
+    webkit_settings_set_allow_file_access_from_file_urls(settings, TRUE);
+    webkit_settings_set_allow_universal_access_from_file_urls(settings, TRUE);
+
+    if (s_defaultUserAgent.empty() || s_defaultUserAgent == "DEFAULT") {
+        webkit_settings_set_user_agent(settings, "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 lumen/1.0");
+    } else {
+        webkit_settings_set_user_agent(settings, s_defaultUserAgent.c_str());
+    }
+
+    WebKitWebsitePolicies* defaultPolicies = webkit_website_policies_new_with_policies(
+        "autoplay", WEBKIT_AUTOPLAY_ALLOW,
+        NULL
+    );
+
+    m_ucm = webkit_user_content_manager_new();
+    webkit_user_content_manager_register_script_message_handler(m_ucm, "lumenMedia");
+    g_signal_connect(m_ucm, "script-message-received::lumenMedia", G_CALLBACK(+[](WebKitUserContentManager*, WebKitJavascriptResult* res, gpointer data) {
+        auto* self = static_cast<WebTab*>(data);
+        if (!self) return;
+#if WEBKIT_CHECK_VERSION(2, 22, 0)
+        JSCValue* val = webkit_javascript_result_get_js_value(res);
+        if (val && jsc_value_is_string(val)) {
+            char* str = jsc_value_to_string(val);
+            if (str) {
+                self->handleMediaScriptMessage(str);
+                g_free(str);
+            }
+        }
+#endif
+    }), this);
+
+    WebKitUserStyleSheet* cornerStyle = webkit_user_style_sheet_new(
+        "::-webkit-scrollbar-corner { background: transparent !important; display: none !important; }\n"
+        "::-webkit-resizer { background: transparent !important; display: none !important; }\n",
+        WEBKIT_USER_CONTENT_INJECT_ALL_FRAMES,
+        WEBKIT_USER_STYLE_LEVEL_USER,
+        nullptr, nullptr
+    );
+    webkit_user_content_manager_add_style_sheet(m_ucm, cornerStyle);
+    webkit_user_style_sheet_unref(cornerStyle);
+
+    WebKitWebContext* webCtx = context ? context : (m_isOnion ? Core::TorBridge::getTorWebContext(Core::TorBridge::getTorPort()) : getSharedWebContext());
+
+    m_webView = GTK_WIDGET(g_object_new(WEBKIT_TYPE_WEB_VIEW,
+        "web-context", webCtx,
+        "settings", settings,
+        "user-content-manager", m_ucm,
+        "website-policies", defaultPolicies,
+        NULL));
+    g_object_unref(settings);
+    g_object_unref(defaultPolicies);
+
+    GdkRGBA bg = {0.0, 0.0, 0.0, 0.0};
+    webkit_web_view_set_background_color(WEBKIT_WEB_VIEW(m_webView), &bg);
+
+    setupWebKitSignals();
+
+    if (m_onWebViewRecreated) {
+        m_onWebViewRecreated(oldView, m_webView);
+    }
+
+    if (oldView && GTK_IS_WIDGET(oldView)) {
+        gtk_widget_destroy(oldView);
+    }
+    if (oldUcm) {
+        g_object_unref(oldUcm);
+    }
+}
+
 WebTab::~WebTab() {
     stopMediaPoll();
     m_onTitleChange = nullptr;
@@ -355,13 +492,17 @@ WebTab::~WebTab() {
     m_onSiteDataChanged = nullptr;
     m_onNewTabRequested = nullptr;
     m_onFullscreenToggled = nullptr;
+    m_onOpenSettingsRequested = nullptr;
+    m_onWebViewRecreated = nullptr;
 
     if (m_webView) {
-        g_signal_handlers_disconnect_by_data(m_webView, this);
         if (WEBKIT_IS_WEB_VIEW(m_webView)) {
+            g_signal_handlers_disconnect_by_data(m_webView, this);
             webkit_web_view_stop_loading(WEBKIT_WEB_VIEW(m_webView));
         }
-        gtk_widget_destroy(m_webView);
+        if (GTK_IS_WIDGET(m_webView)) {
+            gtk_widget_destroy(m_webView);
+        }
         m_webView = nullptr;
     }
 
@@ -721,6 +862,41 @@ void WebTab::setupWebKitSignals() {
             // webkit_web_view_reload(webView); // THIS CAUSES UI PROCESS SEGFAULT in WebKit 2.42+
         }
     }), this);
+
+    // 7. Cross-context navigation isolation (Tor .onion <-> clearnet)
+    g_signal_connect(m_webView, "decide-policy", G_CALLBACK(+[](WebKitWebView*, WebKitPolicyDecision* decision, WebKitPolicyDecisionType type, gpointer data) -> gboolean {
+        auto* self = static_cast<WebTab*>(data);
+        if (!self || type != WEBKIT_POLICY_DECISION_TYPE_NAVIGATION_ACTION) return FALSE;
+        WebKitNavigationPolicyDecision* navDecision = WEBKIT_NAVIGATION_POLICY_DECISION(decision);
+        WebKitNavigationAction* navAction = webkit_navigation_policy_decision_get_navigation_action(navDecision);
+        if (!navAction) return FALSE;
+        WebKitURIRequest* req = webkit_navigation_action_get_request(navAction);
+        if (!req) return FALSE;
+        const char* uri = webkit_uri_request_get_uri(req);
+        if (!uri) return FALSE;
+        std::string destUrl(uri);
+
+        // Allow internal schemes
+        if (destUrl.rfind("lumen://", 0) == 0 || destUrl == "about:blank") return FALSE;
+
+        bool destIsOnion = Core::TorBridge::isOnionUrl(destUrl);
+        if (self->m_isOnion && !destIsOnion) {
+            // Link in .onion points to clearnet: isolate into new standard tab without Referer
+            webkit_policy_decision_ignore(decision);
+            if (self->m_onNewTabRequested) {
+                self->m_onNewTabRequested(destUrl, false);
+            }
+            return TRUE;
+        } else if (!self->m_isOnion && destIsOnion) {
+            // Link in clearnet points to .onion: isolate into new onion tab
+            webkit_policy_decision_ignore(decision);
+            if (self->m_onNewTabRequested) {
+                self->m_onNewTabRequested(destUrl, false);
+            }
+            return TRUE;
+        }
+        return FALSE;
+    }), this);
 }
 
 std::string WebTab::sanitizeTrackingParams(const std::string& url) {
@@ -862,7 +1038,51 @@ void WebTab::loadErrorPage(const std::string& failingUri, const std::string& err
 }
 
 void WebTab::loadUrl(const std::string& url) {
-    if (url == "lumen://error") {
+    if (url.rfind("lumen://onion-disabled", 0) == 0) {
+        m_isErrorPage = true;
+        m_isOnion = true;
+        std::string target = "";
+        auto qPos = url.find("target=");
+        if (qPos != std::string::npos) {
+            target = url.substr(qPos + 7);
+        }
+        m_url = target.empty() ? url : target;
+        m_title = "Onion Routing Disabled";
+        m_isLoading = false;
+        m_loadProgress = 1.0f;
+        std::string html = getOnionBlockedHtml(Theme::ThemeManager::instance().activePalette(), m_url);
+        webkit_web_view_load_html(WEBKIT_WEB_VIEW(m_webView), html.c_str(), "lumen://onion-disabled");
+        if (m_onTitleChange) m_onTitleChange(m_title);
+        if (m_onUrlChange) m_onUrlChange(m_url);
+        if (m_onProgressChange) m_onProgressChange(1.0f);
+        return;
+    }
+
+    if (url.rfind("lumen://error", 0) == 0) {
+        std::string code = "";
+        std::string target = "";
+        auto cPos = url.find("code=");
+        if (cPos != std::string::npos) {
+            auto end = url.find('&', cPos);
+            code = (end != std::string::npos) ? url.substr(cPos + 5, end - (cPos + 5)) : url.substr(cPos + 5);
+        }
+        auto tPos = url.find("target=");
+        if (tPos != std::string::npos) {
+            target = url.substr(tPos + 7);
+        }
+        if (code == "TOR_DAEMON_UNAVAILABLE") {
+            int port = Core::TorBridge::getTorPort();
+            m_isOnion = true;
+            loadErrorPage(
+                !target.empty() ? target : (!m_failedUri.empty() ? m_failedUri : "https://hidden-service.onion"),
+                "TOR::ERR_DAEMON_UNAVAILABLE",
+                "Tor Daemon Unavailable",
+                "Tor proxy is unreachable on 127.0.0.1:" + std::to_string(port) + ". Ensure the tor daemon is running.",
+                "SOCKS5_CONNECT_REFUSED / 127.0.0.1:" + std::to_string(port)
+            );
+            return;
+        }
+
         loadErrorPage(
             !m_failedUri.empty() ? m_failedUri : "https://example.com",
             "NET::ERR_CONNECTION_FAILED",
@@ -906,6 +1126,28 @@ void WebTab::loadUrl(const std::string& url) {
 
     if (m_isEphemeral) {
         full = sanitizeTrackingParams(full);
+    }
+
+    // Tor / .onion Routing Interception
+    bool isTargetOnion = Core::TorBridge::isOnionUrl(full);
+    if (isTargetOnion) {
+        if (!Core::TorBridge::isTorRoutingEnabled()) {
+            loadUrl("lumen://onion-disabled?target=" + full);
+            return;
+        }
+        int port = Core::TorBridge::getTorPort();
+        if (!Core::TorBridge::probeTorDaemon(port)) {
+            loadUrl("lumen://error?code=TOR_DAEMON_UNAVAILABLE&target=" + full);
+            return;
+        }
+        // Ensure webview is backed by isolated TorSessionContext
+        if (!m_isOnion) {
+            recreateWebView(Core::TorBridge::getTorWebContext(port), true);
+        }
+    } else {
+        if (m_isOnion) {
+            recreateWebView(getSharedWebContext(), false);
+        }
     }
 
     m_url = full;
@@ -1580,6 +1822,13 @@ void WebTab::handleMediaScriptMessage(const std::string& messageJson) {
     };
 
     std::string action = parseField("action");
+    if (action == "openSettings") {
+        std::string section = parseField("section");
+        if (m_onOpenSettingsRequested) {
+            m_onOpenSettingsRequested(section.empty() ? "tor" : section);
+        }
+        return;
+    }
     if (action == "poll" || action == "getMediaState") {
         syncSystemMediaState();
         return;

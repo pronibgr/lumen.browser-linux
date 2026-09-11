@@ -373,7 +373,12 @@ void CompactTopbar::drawRow2Btn(cairo_t* cr, double cx, double cy, int btnIdx) {
     }
 }
 
-// padlock status icon (green = tls ok, red = broken, muted = internal)
+void CompactTopbar::setOnion(bool v) {
+    m_isOnion = v;
+    m_omnibox.setOnion(v);
+}
+
+// padlock status icon (green = tls ok, red = broken, muted = internal, onion = Tor circuit active)
 void CompactTopbar::drawLockIcon(cairo_t* cr, double x, double y) {
     double w = m_lockW, h = m_lockH;
     double cx = x + w / 2.0, cy = y + h / 2.0;
@@ -383,6 +388,57 @@ void CompactTopbar::drawLockIcon(cairo_t* cr, double x, double y) {
         rr(cr, x, y, w, h, 6.0);
         sc(cr, Theme::BG_ACTIVE);
         cairo_fill(cr);
+    }
+
+    if (m_isOnion) {
+        // Onion security badge in #7aa2f7 with subtle glow
+        Theme::Color onionCol = Theme::Color{0.48f, 0.64f, 0.97f, 1.0f}; // #7aa2f7
+        sc(cr, onionCol);
+        cairo_set_line_cap(cr, CAIRO_LINE_CAP_ROUND);
+        cairo_set_line_join(cr, CAIRO_LINE_JOIN_ROUND);
+
+        cairo_save(cr);
+        cairo_translate(cr, cx, cy);
+
+        // Outer contour of onion bulb
+        cairo_set_line_width(cr, 1.2);
+        cairo_new_path(cr);
+        cairo_move_to(cr, 0.0, -4.5);
+        cairo_curve_to(cr, -3.8, -4.5, -6.0, -1.5, -6.0, 2.2);
+        cairo_curve_to(cr, -6.0, 5.2, -3.5, 7.0, 0.0, 7.0);
+        cairo_curve_to(cr, 3.5, 7.0, 6.0, 5.2, 6.0, 2.2);
+        cairo_curve_to(cr, 6.0, -1.5, 3.8, -4.5, 0.0, -4.5);
+        cairo_close_path(cr);
+        cairo_stroke(cr);
+
+        // Inner dashed ring
+        const double dashes[] = { 2.5, 1.0 };
+        cairo_set_dash(cr, dashes, 2, 0);
+        cairo_set_line_width(cr, 1.0);
+        cairo_new_path(cr);
+        cairo_move_to(cr, 0.0, -2.0);
+        cairo_curve_to(cr, -2.2, -2.0, -3.8, -0.2, -3.8, 2.5);
+        cairo_curve_to(cr, -3.8, 4.5, -2.2, 5.6, 0.0, 5.6);
+        cairo_curve_to(cr, 2.2, 5.6, 3.8, 4.5, 3.8, 2.5);
+        cairo_curve_to(cr, 3.8, -0.2, 2.2, -2.0, 0.0, -2.0);
+        cairo_close_path(cr);
+        cairo_stroke(cr);
+        cairo_set_dash(cr, nullptr, 0, 0);
+
+        // Core dot
+        cairo_new_path(cr);
+        cairo_arc(cr, 0.0, 2.8, 1.3, 0, 2 * M_PI);
+        cairo_fill(cr);
+
+        // Top stem sprout
+        cairo_set_line_width(cr, 1.2);
+        cairo_new_path(cr);
+        cairo_move_to(cr, 0.0, -4.5); cairo_line_to(cr, 0.0, -7.0);
+        cairo_move_to(cr, -1.5, -6.2); cairo_line_to(cr, 0.0, -7.0); cairo_line_to(cr, 1.5, -6.2);
+        cairo_stroke(cr);
+
+        cairo_restore(cr);
+        return;
     }
 
     bool isInternal = (m_currentUrl.empty() || m_currentUrl == "lumen://newtab" ||

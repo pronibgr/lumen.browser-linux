@@ -51,6 +51,8 @@ set(COMMON_SOURCES
     src/omnibox/fuzzy_search.cpp
     src/storage/database.cpp
     src/ai/lazy_ai_core.cpp
+    src/core/tor_bridge.cpp
+    src/core/tor_provisioner.cpp
 )
 
 add_executable(blueprint_browser src/main.cpp src/core/app.cpp ${COMMON_SOURCES})
