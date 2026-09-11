@@ -317,20 +317,30 @@ WebTab::WebTab(int id, const std::string& url, const std::string& title, WebKitW
 #endif
     }), this);
 
+    WebKitUserStyleSheet* cornerStyle = webkit_user_style_sheet_new(
+        "::-webkit-scrollbar-corner { background: transparent !important; display: none !important; }\n"
+        "::-webkit-resizer { background: transparent !important; display: none !important; }\n",
+        WEBKIT_USER_CONTENT_INJECT_ALL_FRAMES,
+        WEBKIT_USER_STYLE_LEVEL_USER,
+        nullptr, nullptr
+    );
+    webkit_user_content_manager_add_style_sheet(ucm, cornerStyle);
+    webkit_user_style_sheet_unref(cornerStyle);
+
+    m_ucm = ucm;
     WebKitWebContext* webCtx = context ? context : getSharedWebContext();
 
     m_webView = GTK_WIDGET(g_object_new(WEBKIT_TYPE_WEB_VIEW,
         "web-context", webCtx,
         "settings", settings,
-        "user-content-manager", ucm,
+        "user-content-manager", m_ucm,
         "website-policies", defaultPolicies,
         NULL));
-    g_object_unref(ucm);
     g_object_unref(settings);
     g_object_unref(defaultPolicies);
 
-    // dark obsidian bg so it doesnt flash blinding white while loading
-    GdkRGBA bg = m_isEphemeral ? GdkRGBA{0.027, 0.031, 0.035, 1.0} : GdkRGBA{0.055, 0.067, 0.086, 1.0};
+    // Transparent bg so rounded window corners show through cleanly
+    GdkRGBA bg = {0.0, 0.0, 0.0, 0.0};
     webkit_web_view_set_background_color(WEBKIT_WEB_VIEW(m_webView), &bg);
 
     setupWebKitSignals();
@@ -339,9 +349,27 @@ WebTab::WebTab(int id, const std::string& url, const std::string& title, WebKitW
 
 WebTab::~WebTab() {
     stopMediaPoll();
+    m_onTitleChange = nullptr;
+    m_onUrlChange = nullptr;
+    m_onProgressChange = nullptr;
+    m_onSiteDataChanged = nullptr;
+    m_onNewTabRequested = nullptr;
+    m_onFullscreenToggled = nullptr;
+
     if (m_webView) {
+        g_signal_handlers_disconnect_by_data(m_webView, this);
+        if (WEBKIT_IS_WEB_VIEW(m_webView)) {
+            webkit_web_view_stop_loading(WEBKIT_WEB_VIEW(m_webView));
+        }
         gtk_widget_destroy(m_webView);
         m_webView = nullptr;
+    }
+
+    if (m_ucm) {
+        g_signal_handlers_disconnect_by_data(m_ucm, this);
+        webkit_user_content_manager_unregister_script_message_handler(m_ucm, "lumenMedia");
+        g_object_unref(m_ucm);
+        m_ucm = nullptr;
     }
 }
 
@@ -773,7 +801,7 @@ void WebTab::loadNewTabHtml() {
 }
 
 void WebTab::applyTheme(const Theme::Palette& pal) {
-    if (!m_webView) return;
+    if (!m_webView || !WEBKIT_IS_WEB_VIEW(m_webView)) return;
     if (m_url != "lumen://newtab" && m_url != "about:blank" && !m_isErrorPage) return;
 
     std::string js = "if (window.__setLumenTheme) { window.__setLumenTheme({"
@@ -1147,7 +1175,7 @@ void WebTab::setCallbacks(std::function<void(const std::string&)> onTitle,
 }
 
 bool WebTab::isPlayingAudio() const {
-    if (!m_webView) return false;
+    if (!m_webView || !WEBKIT_IS_WEB_VIEW(m_webView)) return false;
     return webkit_web_view_is_playing_audio(WEBKIT_WEB_VIEW(m_webView));
 }
 
@@ -1513,7 +1541,7 @@ void WebTab::executeMprisCommand(const std::string& action, double param) {
 }
 
 void WebTab::syncSystemMediaState() {
-    if (!m_webView || m_url != "lumen://newtab") return;
+    if (!m_webView || !WEBKIT_IS_WEB_VIEW(m_webView) || m_url != "lumen://newtab") return;
     std::string json = querySystemMprisJson();
     std::string js = "if (window.__updateLumenMediaState) { window.__updateLumenMediaState(" + json + "); }";
 #pragma GCC diagnostic push

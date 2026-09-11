@@ -46,6 +46,8 @@ void TabStrip::setTabs(const std::vector<std::shared_ptr<Engine::WebTab>>& tabs,
     bool tabCountChanged = (m_tabs.size() != tabs.size());
     m_tabs = tabs;
     m_activeIndex = std::clamp(activeIndex, 0, static_cast<int>(m_tabs.size()) - 1);
+    m_hoveredIndex = -1;
+    m_hoveredCloseIndex = -1;
 
     if (m_lastW > 0 && !m_tabs.empty()) {
         double tabW = 0, totalW = 0;
@@ -58,14 +60,13 @@ void TabStrip::setTabs(const std::vector<std::shared_ptr<Engine::WebTab>>& tabs,
     }
 }
 
-void TabStrip::setCallbacks(TabSwitchCallback sw, TabCreateCallback cr, TabCloseCallback cl) {
-    m_onSwitch = sw; m_onCreate = cr; m_onClose = cl;
+void TabStrip::setCallbacks(TabSwitchCallback sw, TabCloseCallback cl) {
+    m_onSwitch = sw; m_onClose = cl;
 }
 
 void TabStrip::computeLayout(double width, size_t numTabs, double& tabW, double& totalW) {
-    constexpr double ADD_BTN_W = 34.0;
-    constexpr double GAP       =  3.0;
-    double avail = std::max(50.0, width - ADD_BTN_W);
+    constexpr double GAP = 3.0;
+    double avail = std::max(50.0, width);
 
     if (numTabs == 0) {
         tabW = Theme::TAB_MAX_WIDTH;
@@ -82,7 +83,7 @@ void TabStrip::ensureTabVisible(int index) {
     if (index < 0 || index >= static_cast<int>(m_tabs.size()) || m_lastW <= 50.0) return;
 
     constexpr double GAP = 3.0;
-    double viewW = m_lastW - 36.0;
+    double viewW = m_lastW;
     double tabLeft  = index * (m_targetTabW + GAP);
     double tabRight = tabLeft + m_targetTabW;
 
@@ -216,7 +217,7 @@ void TabStrip::draw(cairo_t* cr, double x, double y, double width, double height
     constexpr double GAP = 3.0;
 
     // recompute max scroll based on total tabs width
-    double viewWidth = width - 36.0;
+    double viewWidth = width;
     double maxScroll = std::max(0.0, (m_currentTabW + GAP) * numTabs - GAP - viewWidth);
     m_maxScrollOffset = maxScroll;
     m_targetScrollOffset = std::clamp(m_targetScrollOffset, 0.0, m_maxScrollOffset);
@@ -235,7 +236,7 @@ void TabStrip::draw(cairo_t* cr, double x, double y, double width, double height
         m_cursorInit = true;
     }
 
-    // clip tabs to strip area (leave room for + button on right)
+    // clip tabs to strip area
     cairo_save(cr);
     cairo_rectangle(cr, x, y, viewWidth, height);
     cairo_clip(cr);
@@ -275,28 +276,6 @@ void TabStrip::draw(cairo_t* cr, double x, double y, double width, double height
 
     cairo_restore(cr); // restore clip
 
-    // add tab button (+)
-    double addX = x + width - 30;
-    double addY = y + (height - 24.0) / 2.0;
-    rr(cr, addX, addY, 24, 24, 6);
-    if (m_hoveredAddButton) {
-        sc(cr, Theme::BG_ACTIVE);
-        cairo_fill_preserve(cr);
-    } else {
-        cairo_set_source_rgba(cr, 0, 0, 0, 0);
-        cairo_fill_preserve(cr);
-    }
-    sc(cr, Theme::BORDER_SOFT, m_hoveredAddButton ? 0.8f : 0.35f);
-    cairo_set_line_width(cr, 1.0);
-    cairo_stroke(cr);
-
-    double plusCX = addX + 12, plusCY = addY + 12;
-    sc(cr, m_hoveredAddButton ? Theme::TEXT_MAIN : Theme::TEXT_MUTED);
-    cairo_set_line_width(cr, 1.6);
-    cairo_move_to(cr, plusCX, plusCY - 5); cairo_line_to(cr, plusCX, plusCY + 5);
-    cairo_move_to(cr, plusCX - 5, plusCY); cairo_line_to(cr, plusCX + 5, plusCY);
-    cairo_stroke(cr);
-
     // fade out edges if scrollable
     if (m_scrollOffset > 2.0) {
         cairo_pattern_t* pat = cairo_pattern_create_linear(x, 0, x + 18, 0);
@@ -325,20 +304,11 @@ bool TabStrip::handleMouseMove(double mx, double my) {
     size_t n = m_tabs.size();
     constexpr double GAP = 3.0;
     double tabY = m_lastY + (m_lastH - Theme::TAB_HEIGHT) / 2.0;
-    double viewWidth = m_lastW - 36.0;
+    double viewWidth = m_lastW;
 
     int oldHov = m_hoveredIndex, oldCHov = m_hoveredCloseIndex;
-    bool oldAdd = m_hoveredAddButton;
     m_hoveredIndex = -1;
     m_hoveredCloseIndex = -1;
-    m_hoveredAddButton = false;
-
-    // check the add tab button (+) first
-    double addX = m_lastX + m_lastW - 30;
-    double addY = m_lastY + (m_lastH - 24.0) / 2.0;
-    if (mx >= addX && mx <= addX + 24 && my >= addY && my <= addY + 24) {
-        m_hoveredAddButton = true;
-    }
 
     // only check tab bounds if within the visible strip
     if (mx >= m_lastX && mx <= m_lastX + viewWidth && my >= m_lastY && my <= m_lastY + m_lastH) {
@@ -356,53 +326,58 @@ bool TabStrip::handleMouseMove(double mx, double my) {
         }
     }
 
-    return (oldHov != m_hoveredIndex || oldCHov != m_hoveredCloseIndex || oldAdd != m_hoveredAddButton);
+    return (oldHov != m_hoveredIndex || oldCHov != m_hoveredCloseIndex);
 }
 
 bool TabStrip::handleMouseDown(double mx, double my, int button) {
-    if (m_tabs.empty()) return false;
+    if (m_tabs.empty() || m_lastW <= 0) return false;
     // tab strip is strictly in row 1
     if (my < 0.0 || my > Theme::ROW1_HEIGHT) return false;
 
-    double viewWidth = m_lastW - 36.0;
+    double viewWidth = m_lastW;
+    if (mx < m_lastX || mx > m_lastX + viewWidth) return false;
 
-    if (m_hoveredAddButton) {
-        if (m_onCreate) m_onCreate();
+    size_t n = m_tabs.size();
+    constexpr double GAP = 3.0;
+    double tabY = m_lastY + (m_lastH - Theme::TAB_HEIGHT) / 2.0;
+    double curX = m_lastX - m_scrollOffset;
+
+    int targetIdx = -1;
+    bool clickedClose = false;
+
+    for (size_t i = 0; i < n; ++i) {
+        double tx = curX + i * (m_currentTabW + GAP);
+        if (mx >= tx && mx <= tx + m_currentTabW && my >= tabY && my <= tabY + Theme::TAB_HEIGHT) {
+            targetIdx = static_cast<int>(i);
+            double cx = tx + m_currentTabW - 12.0;
+            double cy = tabY + Theme::TAB_HEIGHT / 2.0;
+            if (std::hypot(mx - cx, my - cy) <= 9.0) {
+                clickedClose = true;
+            }
+            break;
+        }
+    }
+
+    if (targetIdx < 0 || targetIdx >= static_cast<int>(n)) return false;
+
+    // Reset hover states so subsequent rapid clicks without mouse move don't use stale indices
+    m_hoveredIndex = -1;
+    m_hoveredCloseIndex = -1;
+
+    // Middle click or close button click closes the tab
+    if (button == 2 || (button == 1 && clickedClose)) {
+        if (m_onClose) {
+            m_onClose(targetIdx);
+        }
         return true;
     }
 
-    // handle clicks inside visible strip area
-    if (mx >= m_lastX && mx <= m_lastX + viewWidth) {
-        // find clicked tab if mousemoved too fast and cache missed
-        int targetIdx = m_hoveredIndex;
-        if (targetIdx < 0) {
-            size_t n = m_tabs.size();
-            constexpr double GAP = 3.0;
-            double curX = m_lastX - m_scrollOffset;
-            for (size_t i = 0; i < n; ++i) {
-                double tx = curX + i * (m_currentTabW + GAP);
-                if (mx >= tx && mx <= tx + m_currentTabW) {
-                    targetIdx = static_cast<int>(i);
-                    break;
-                }
-            }
+    // Left click switches to the tab
+    if (button == 1 && targetIdx >= 0) {
+        if (targetIdx != m_activeIndex && m_onSwitch) {
+            m_onSwitch(m_activeIndex, targetIdx);
         }
-
-        // middle click closes the tab under cursor
-        if (button == 2 && targetIdx >= 0) {
-            if (m_onClose) m_onClose(targetIdx);
-            return true;
-        }
-
-        if (m_hoveredCloseIndex >= 0) {
-            if (m_onClose) m_onClose(m_hoveredCloseIndex);
-            return true;
-        }
-
-        if (targetIdx >= 0 && targetIdx != m_activeIndex) {
-            if (m_onSwitch) m_onSwitch(m_activeIndex, targetIdx);
-            return true;
-        }
+        return true;
     }
 
     return false;

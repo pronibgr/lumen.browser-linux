@@ -53,6 +53,13 @@ public:
     void setOnReload        (std::function<void()> cb) { m_onReload = cb; }
     void setOnClearData     (std::function<void()> cb) { m_onClearData = cb; }
     void setOnRefreshSiteData(std::function<void()> cb) { m_onRefreshSiteData = cb; }
+    void setOnNewTab        (std::function<void()> cb) { m_onNewTab = cb; }
+    void setOnMinimize      (std::function<void()> cb) { m_onMinimize = cb; }
+    void setOnMaximizeToggle(std::function<void()> cb) { m_onMaximizeToggle = cb; }
+    void setOnCloseWindow   (std::function<void()> cb) { m_onCloseWindow = cb; }
+
+    void setMaximized(bool max) { m_isMaximized = max; }
+    bool isMaximized() const    { return m_isMaximized; }
 
     bool isSettingsOpen() const { return m_settings.isVisible(); }
 
@@ -70,8 +77,15 @@ private:
     bool m_canGoForward = false;
     bool m_canReload    = true;
 
-    // nav button hover index: -1=none, 0=back, 1=forward, 2=reload, 3=settings
+    // nav button hover index: -1=none, 0=back, 1=forward, 2=reload
     int m_hoveredNav = -1;
+
+    // window button hover index: -1=none, 0=minimize, 1=maximize, 2=close
+    int  m_hoveredWinBtn = -1;
+    bool m_isMaximized   = false;
+
+    // row 2 action button hover index: -1=none, 0=new tab, 1=settings
+    int  m_hoveredRow2Btn = -1;
 
     // reload vortex rotation physics
     float m_reloadSpinAngle = 0.0f;
@@ -107,16 +121,18 @@ private:
     std::string m_currentUrl;
 
     std::function<void()> m_onBack, m_onForward, m_onReload, m_onClearData, m_onRefreshSiteData;
+    std::function<void()> m_onNewTab, m_onMinimize, m_onMaximizeToggle, m_onCloseWindow;
 
     void updateLayout(double w);
 
-    // row 1: nav buttons + tabs
+    // row 1: nav buttons + tabs + window controls
     void drawRow1(cairo_t* cr, double w);
-    // row 2: omnibox + lock icon
+    // row 2: omnibox + lock icon + new tab (+) & settings
     void drawRow2(cairo_t* cr, double w);
 
     void drawNavBtn(cairo_t* cr, double cx, double cy, int btnIdx, bool enabled);
-    void drawActionBtn(cairo_t* cr, double cx, double cy, int btnIdx, bool active);
+    void drawWindowBtn(cairo_t* cr, double cx, double cy, int btnIdx);
+    void drawRow2Btn(cairo_t* cr, double cx, double cy, int btnIdx);
     void drawLockIcon(cairo_t* cr, double x, double y);
     void drawCertBanner(cairo_t* cr, double winW, double winH);
     void drawClearDataModal(cairo_t* cr, double winW, double winH);

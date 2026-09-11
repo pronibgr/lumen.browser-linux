@@ -29,10 +29,25 @@ inline const char* NEW_TAB_HTML = R"html(<!DOCTYPE html>
 
   * { box-sizing: border-box; margin: 0; padding: 0; }
 
+  ::-webkit-scrollbar {
+    display: none !important;
+    width: 0 !important;
+    height: 0 !important;
+  }
+  ::-webkit-scrollbar-corner {
+    display: none !important;
+    background: transparent !important;
+  }
+  ::-webkit-resizer {
+    display: none !important;
+    background: transparent !important;
+  }
+
   html, body {
     width: 100%;
     height: 100vh;
     overflow: hidden;
+    border-radius: 0 0 12px 12px;
     background-color: var(--bg-base);
     color: var(--fg-primary);
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", sans-serif;
@@ -45,6 +60,7 @@ inline const char* NEW_TAB_HTML = R"html(<!DOCTYPE html>
   .canvas-backdrop {
     position: absolute;
     inset: 0;
+    border-radius: 0 0 12px 12px;
     background: radial-gradient(circle at 50% 30%, var(--bg-surface) 0%, var(--bg-base) 80%);
     pointer-events: none;
     z-index: 0;
@@ -55,6 +71,7 @@ inline const char* NEW_TAB_HTML = R"html(<!DOCTYPE html>
   .peripheral-frame {
     position: fixed;
     inset: 0;
+    border-radius: 0 0 12px 12px;
     pointer-events: none;
     z-index: 40;
     opacity: 0;
@@ -73,6 +90,8 @@ inline const char* NEW_TAB_HTML = R"html(<!DOCTYPE html>
     bottom: 0;
     width: 100vw;
     height: 100vh;
+    border-radius: 0 0 12px 12px;
+    overflow: hidden;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -1238,7 +1257,9 @@ inline const char* NEW_TAB_HTML = R"html(<!DOCTYPE html>
     border-left: 1px solid var(--border);
     box-shadow: -10px 0 36px rgba(0, 0, 0, 0.75);
     transform: translateX(100%);
-    transition: transform 320ms cubic-bezier(0.16, 1, 0.3, 1);
+    visibility: hidden;
+    pointer-events: none;
+    transition: transform 320ms cubic-bezier(0.16, 1, 0.3, 1), visibility 0s 320ms;
     z-index: 60;
     display: flex;
     flex-direction: column;
@@ -1246,6 +1267,9 @@ inline const char* NEW_TAB_HTML = R"html(<!DOCTYPE html>
   }
   body.edit-mode #widget-tray {
     transform: translateX(0);
+    visibility: visible;
+    pointer-events: auto;
+    transition: transform 320ms cubic-bezier(0.16, 1, 0.3, 1), visibility 0s 0s;
   }
   .tray-header {
     display: flex;

@@ -170,11 +170,9 @@ bool CompactTopbar::wantsRedraw() const {
 
 void CompactTopbar::updateLayout(double w) {
     m_cachedW = w;
-    // row 2: nav buttons on left, omnibox in center, actions on the right
-    double navW = 3 * 32.0 + 4;
-    double actW = 2 * 32.0 + 4;
-    m_omniboxX = navW + 6;
-    m_omniboxW = w - navW - actW - 16;
+    // Row 2: Omnibox occupies left with margin, up to right action buttons (w - 86)
+    m_omniboxX = 14.0;
+    m_omniboxW = std::max(50.0, w - m_omniboxX - 86.0);
     m_omniboxY = Theme::ROW1_HEIGHT + (Theme::ROW2_HEIGHT - Theme::OMNIBOX_HEIGHT) / 2.0;
 
     m_lockX = m_omniboxX + 4.0;
@@ -264,12 +262,79 @@ void CompactTopbar::drawNavBtn(cairo_t* cr, double cx, double cy, int btnIdx, bo
     }
 }
 
-void CompactTopbar::drawActionBtn(cairo_t* cr, double cx, double cy, int btnIdx, bool active) {
-    bool hov = (m_hoveredNav == btnIdx);
+void CompactTopbar::drawWindowBtn(cairo_t* cr, double cx, double cy, int btnIdx) {
+    bool hov = (m_hoveredWinBtn == btnIdx);
+    double pillW = 32.0, pillH = 28.0;
+    double pillX = cx - pillW / 2.0, pillY = cy - pillH / 2.0;
+
+    if (hov) {
+        rr(cr, pillX, pillY, pillW, pillH, 6.0);
+        if (btnIdx == 2) {
+            cairo_set_source_rgba(cr, 0.88, 0.22, 0.22, 0.90);
+        } else {
+            sc(cr, Theme::BG_ACTIVE);
+        }
+        cairo_fill(cr);
+    }
+
+    if (hov && btnIdx == 2) {
+        cairo_set_source_rgba(cr, 1.0, 1.0, 1.0, 1.0);
+    } else if (hov) {
+        sc(cr, Theme::TEXT_MAIN);
+    } else {
+        sc(cr, Theme::TEXT_MUTED, 0.85f);
+    }
+
+    cairo_set_line_cap(cr, CAIRO_LINE_CAP_ROUND);
+    cairo_set_line_join(cr, CAIRO_LINE_JOIN_ROUND);
+
+    if (btnIdx == 0) {
+        // Minimize: smooth horizontal bar with rounded caps
+        cairo_set_line_width(cr, 1.7);
+        cairo_new_path(cr);
+        cairo_move_to(cr, cx - 5.5, cy + 2.5);
+        cairo_line_to(cr, cx + 5.5, cy + 2.5);
+        cairo_stroke(cr);
+    } else if (btnIdx == 1) {
+        // Maximize / Restore: smooth rounded frame(s)
+        if (!m_isMaximized) {
+            cairo_set_line_width(cr, 1.5);
+            rr(cr, cx - 5.0, cy - 5.0, 10.0, 10.0, 2.0);
+            cairo_stroke(cr);
+        } else {
+            // Overlapping dual rounded frames
+            cairo_set_line_width(cr, 1.4);
+            // Back frame (upper right)
+            rr(cr, cx - 2.5, cy - 6.0, 8.5, 8.5, 1.8);
+            cairo_stroke(cr);
+            // Front frame (lower left)
+            rr(cr, cx - 6.0, cy - 2.5, 8.5, 8.5, 1.8);
+            if (hov) sc(cr, Theme::BG_ACTIVE);
+            else     sc(cr, Theme::BG_SURFACE);
+            cairo_fill_preserve(cr);
+            if (hov) sc(cr, Theme::TEXT_MAIN);
+            else     sc(cr, Theme::TEXT_MUTED, 0.85f);
+            cairo_stroke(cr);
+        }
+    } else if (btnIdx == 2) {
+        // Close: diagonal cross with rounded ends
+        cairo_set_line_width(cr, 1.6);
+        cairo_new_path(cr);
+        cairo_move_to(cr, cx - 4.5, cy - 4.5);
+        cairo_line_to(cr, cx + 4.5, cy + 4.5);
+        cairo_move_to(cr, cx + 4.5, cy - 4.5);
+        cairo_line_to(cr, cx - 4.5, cy + 4.5);
+        cairo_stroke(cr);
+    }
+}
+
+void CompactTopbar::drawRow2Btn(cairo_t* cr, double cx, double cy, int btnIdx) {
+    bool hov = (m_hoveredRow2Btn == btnIdx);
+    bool active = (btnIdx == 1 && m_settings.isVisible());
     double r = 13.0;
 
     if (hov || active) {
-        cairo_arc(cr, cx, cy, r, 0, 2*M_PI);
+        cairo_arc(cr, cx, cy, r, 0, 2 * M_PI);
         sc(cr, hov ? Theme::BG_ACTIVE : Theme::BG_SUBTLE, active ? 0.6f : 1.0f);
         cairo_fill(cr);
     }
@@ -278,8 +343,17 @@ void CompactTopbar::drawActionBtn(cairo_t* cr, double cx, double cy, int btnIdx,
     cairo_set_line_cap(cr, CAIRO_LINE_CAP_ROUND);
     cairo_set_line_join(cr, CAIRO_LINE_JOIN_ROUND);
 
-    if (btnIdx == 3) {
-        // settings icon with 3 sliders
+    if (btnIdx == 0) {
+        // '+' New Tab button
+        cairo_set_line_width(cr, 1.6);
+        cairo_new_path(cr);
+        cairo_move_to(cr, cx, cy - 5.0);
+        cairo_line_to(cr, cx, cy + 5.0);
+        cairo_move_to(cr, cx - 5.0, cy);
+        cairo_line_to(cr, cx + 5.0, cy);
+        cairo_stroke(cr);
+    } else if (btnIdx == 1) {
+        // Settings 3-slider icon
         cairo_set_line_width(cr, 1.6);
         for (int i = 0; i < 3; ++i) {
             double ly = cy - 5 + i * 5;
@@ -288,11 +362,11 @@ void CompactTopbar::drawActionBtn(cairo_t* cr, double cx, double cy, int btnIdx,
             cairo_line_to(cr, cx + 7, ly);
             cairo_stroke(cr);
             double tx = (i == 0) ? cx - 2 : (i == 1) ? cx + 2 : cx;
-            cairo_arc(cr, tx, ly, 2.5, 0, 2*M_PI);
+            cairo_arc(cr, tx, ly, 2.5, 0, 2 * M_PI);
             sc(cr, (active || hov) ? Theme::ACCENT_CALM : Theme::TEXT_MUTED);
             cairo_fill(cr);
             sc(cr, Theme::BG_SURFACE);
-            cairo_arc(cr, tx, ly, 1.2, 0, 2*M_PI);
+            cairo_arc(cr, tx, ly, 1.2, 0, 2 * M_PI);
             cairo_fill(cr);
             sc(cr, (active || hov) ? Theme::ACCENT_CALM : Theme::TEXT_MUTED);
         }
@@ -351,28 +425,46 @@ void CompactTopbar::drawLockIcon(cairo_t* cr, double x, double y) {
 // ─────────────────────────── row 1: tabs ──────────────────────────────────
 void CompactTopbar::drawRow1(cairo_t* cr, double w) {
     double rowH = Theme::ROW1_HEIGHT;
+    double r = m_isMaximized ? 0.0 : 12.0;
 
-    // background
-    cairo_rectangle(cr, 0, 0, w, rowH);
+    cairo_save(cr);
+
+    // Rounded top corners path
+    cairo_new_path(cr);
+    if (r > 0.0) {
+        cairo_move_to(cr, 0, rowH);
+        cairo_line_to(cr, 0, r);
+        cairo_arc(cr, r, r, r, M_PI, 3 * M_PI / 2);
+        cairo_line_to(cr, w - r, 0);
+        cairo_arc(cr, w - r, r, r, -M_PI / 2, 0);
+        cairo_line_to(cr, w, rowH);
+        cairo_close_path(cr);
+    } else {
+        cairo_rectangle(cr, 0, 0, w, rowH);
+    }
+
     sc(cr, Theme::BG_SURFACE);
-    cairo_fill(cr);
+    cairo_fill_preserve(cr);
+    cairo_clip(cr);
 
-    // nav buttons: 3x32px
+    // nav buttons: 3x32px (x = 0..96)
     double navCY = rowH / 2.0;
     drawNavBtn(cr, 18,  navCY, 0, m_canGoBack);
     drawNavBtn(cr, 50,  navCY, 1, m_canGoForward);
     drawNavBtn(cr, 82,  navCY, 2, m_canReload);
 
-    // tab strip: squished between nav buttons (96px) and settings button (36px right)
-    double tabsX = 96.0;
-    double actW  = 36.0;
-    double tabsW = w - tabsX - actW;
-    m_tabStrip.draw(cr, tabsX, 0, tabsW, rowH);
+    // window controls on far right: 3 buttons (Minimize, Maximize/Restore, Close)
+    // each 40px wide from w - 120 to w
+    double winCY = rowH / 2.0;
+    drawWindowBtn(cr, w - 100.0, winCY, 0); // Minimize
+    drawWindowBtn(cr, w - 60.0,  winCY, 1); // Maximize/Restore
+    drawWindowBtn(cr, w - 20.0,  winCY, 2); // Close
 
-    // settings button on far right
-    double actCY = rowH / 2.0;
-    double actCX = w - 18;
-    drawActionBtn(cr, actCX, actCY, 3, m_settings.isVisible());
+    // tab strip: squished between nav buttons (96px) and window controls (120px)
+    double tabsX = 96.0;
+    double winW  = 120.0;
+    double tabsW = std::max(50.0, w - tabsX - winW);
+    m_tabStrip.draw(cr, tabsX, 0, tabsW, rowH);
 
     // bottom border line
     sc(cr, Theme::BORDER_SOFT, 0.35f);
@@ -381,12 +473,29 @@ void CompactTopbar::drawRow1(cairo_t* cr, double w) {
     cairo_move_to(cr, 0, rowH - 0.5);
     cairo_line_to(cr, w, rowH - 0.5);
     cairo_stroke(cr);
+
+    cairo_restore(cr);
+
+    // Subtle top border highlight on rounded corners
+    if (r > 0.0) {
+        cairo_new_path(cr);
+        cairo_move_to(cr, 0, rowH);
+        cairo_line_to(cr, 0, r);
+        cairo_arc(cr, r, r, r, M_PI, 3 * M_PI / 2);
+        cairo_line_to(cr, w - r, 0);
+        cairo_arc(cr, w - r, r, r, -M_PI / 2, 0);
+        cairo_line_to(cr, w, rowH);
+        sc(cr, Theme::BORDER_SOFT, 0.45f);
+        cairo_set_line_width(cr, 1.0);
+        cairo_stroke(cr);
+    }
 }
 
 // ─────────────────────────── row 2: omnibox & lock ────────────────────────
 void CompactTopbar::drawRow2(cairo_t* cr, double w) {
     double rowY = Theme::ROW1_HEIGHT;
     double rowH = Theme::ROW2_HEIGHT;
+    double rowCY = rowY + rowH / 2.0;
 
     // background
     cairo_rectangle(cr, 0, rowY, w, rowH);
@@ -398,6 +507,10 @@ void CompactTopbar::drawRow2(cairo_t* cr, double w) {
 
     // lock icon inside omnibox on the left
     drawLockIcon(cr, m_lockX, m_lockY);
+
+    // Row 2 action buttons on right: New tab (+) and Settings
+    drawRow2Btn(cr, w - 58.0, rowCY, 0); // New tab (+)
+    drawRow2Btn(cr, w - 24.0, rowCY, 1); // Settings
 
     // neon progress bar on page load
     m_neonProgress.draw(cr, 0, rowY + rowH - 2.0, w);
@@ -837,24 +950,47 @@ bool CompactTopbar::handleMouseMove(double mx, double my) {
         return changed;
     }
 
-    int old = m_hoveredNav;
-    m_hoveredNav = -1;
+    int oldNav  = m_hoveredNav;
+    int oldWin  = m_hoveredWinBtn;
+    int oldRow2 = m_hoveredRow2Btn;
+    m_hoveredNav     = -1;
+    m_hoveredWinBtn  = -1;
+    m_hoveredRow2Btn = -1;
 
     double r = 14.0;
-    struct { double cx; double cy; int idx; } navPts[] = {
-        {18,  double(Theme::ROW1_HEIGHT)/2.0, 0},
-        {50,  double(Theme::ROW1_HEIGHT)/2.0, 1},
-        {82,  double(Theme::ROW1_HEIGHT)/2.0, 2},
-    };
-    for (auto& p : navPts) {
-        if (std::hypot(mx - p.cx, my - p.cy) <= r) {
-            m_hoveredNav = p.idx; break;
+    if (my <= Theme::ROW1_HEIGHT) {
+        // Nav buttons (0..96)
+        struct { double cx; double cy; int idx; } navPts[] = {
+            {18,  double(Theme::ROW1_HEIGHT)/2.0, 0},
+            {50,  double(Theme::ROW1_HEIGHT)/2.0, 1},
+            {82,  double(Theme::ROW1_HEIGHT)/2.0, 2},
+        };
+        for (auto& p : navPts) {
+            if (std::hypot(mx - p.cx, my - p.cy) <= r) {
+                m_hoveredNav = p.idx; break;
+            }
         }
-    }
-    double actCY = double(Theme::ROW1_HEIGHT) / 2.0;
-    double actCX = m_cachedW - 18;
-    if (m_cachedW > 0) {
-        if (std::hypot(mx - actCX, my - actCY) <= r) m_hoveredNav = 3;
+
+        // Window buttons (w - 120..w)
+        if (m_cachedW > 0 && mx >= m_cachedW - 120.0) {
+            if (mx < m_cachedW - 80.0) {
+                m_hoveredWinBtn = 0; // Minimize
+            } else if (mx < m_cachedW - 40.0) {
+                m_hoveredWinBtn = 1; // Maximize
+            } else {
+                m_hoveredWinBtn = 2; // Close
+            }
+        }
+    } else if (my <= Theme::ROW1_HEIGHT + Theme::ROW2_HEIGHT) {
+        // Row 2 action buttons on right:
+        double row2CY = double(Theme::ROW1_HEIGHT) + double(Theme::ROW2_HEIGHT) / 2.0;
+        if (m_cachedW > 0) {
+            if (std::hypot(mx - (m_cachedW - 58.0), my - row2CY) <= r) {
+                m_hoveredRow2Btn = 0; // New Tab (+)
+            } else if (std::hypot(mx - (m_cachedW - 24.0), my - row2CY) <= r) {
+                m_hoveredRow2Btn = 1; // Settings
+            }
+        }
     }
 
     // lock icon hover check
@@ -862,7 +998,8 @@ bool CompactTopbar::handleMouseMove(double mx, double my) {
     m_hoveredLock = (mx >= m_lockX && mx <= m_lockX + m_lockW &&
                      my >= m_lockY && my <= m_lockY + m_lockH);
 
-    bool ch = (old != m_hoveredNav || oldLock != m_hoveredLock);
+    bool ch = (oldNav != m_hoveredNav || oldWin != m_hoveredWinBtn ||
+               oldRow2 != m_hoveredRow2Btn || oldLock != m_hoveredLock);
     if (m_tabStrip.handleMouseMove(mx, my)) ch = true;
     if (m_omnibox.handleMouseMove(mx, my))  ch = true;
     return ch;
@@ -927,6 +1064,21 @@ bool CompactTopbar::handleMouseDown(double mx, double my) {
         return true;
     }
 
+    // 1. window buttons in Row 1 (Minimize, Maximize/Restore, Close)
+    if (my <= Theme::ROW1_HEIGHT && m_cachedW > 0 && mx >= m_cachedW - 120.0) {
+        if (mx < m_cachedW - 80.0) {
+            if (m_onMinimize) m_onMinimize();
+            return true;
+        } else if (mx < m_cachedW - 40.0) {
+            if (m_onMaximizeToggle) m_onMaximizeToggle();
+            return true;
+        } else {
+            if (m_onCloseWindow) m_onCloseWindow();
+            return true;
+        }
+    }
+
+    // 2. Row 1 navigation buttons
     if (m_hoveredNav == 0 && m_canGoBack    && m_onBack)    { m_onBack();    return true; }
     if (m_hoveredNav == 1 && m_canGoForward && m_onForward) { m_onForward(); return true; }
     if (m_hoveredNav == 2 && m_canReload    && m_onReload)  {
@@ -935,18 +1087,35 @@ bool CompactTopbar::handleMouseDown(double mx, double my) {
         m_onReload();
         return true;
     }
-    if (m_hoveredNav == 3) { m_settings.toggle(); return true; }
 
-    // row 1: nav buttons, tab strip, and settings button
+    // 3. Row 1 tab strip (nav and window buttons already handled above)
     if (my <= Theme::ROW1_HEIGHT) {
-        if (m_tabStrip.handleMouseDown(mx, my, 1)) {
-            m_omnibox.setFocused(false);
-            return true;
+        if (mx >= 96.0 && mx < m_cachedW - 120.0) {
+            if (m_tabStrip.handleMouseDown(mx, my, 1)) {
+                m_omnibox.setFocused(false);
+                return true;
+            }
         }
         return false;
     }
 
-    // row 2: omnibox (single click focus and text editing)
+    // 4. Row 2 action buttons (+ and Settings)
+    if (my > Theme::ROW1_HEIGHT && my <= Theme::ROW1_HEIGHT + Theme::ROW2_HEIGHT) {
+        double r = 14.0;
+        double row2CY = double(Theme::ROW1_HEIGHT) + double(Theme::ROW2_HEIGHT) / 2.0;
+        if (m_cachedW > 0) {
+            if (std::hypot(mx - (m_cachedW - 58.0), my - row2CY) <= r || m_hoveredRow2Btn == 0) {
+                if (m_onNewTab) m_onNewTab();
+                return true;
+            }
+            if (std::hypot(mx - (m_cachedW - 24.0), my - row2CY) <= r || m_hoveredRow2Btn == 1) {
+                m_settings.toggle();
+                return true;
+            }
+        }
+    }
+
+    // 5. Row 2 omnibox (single click focus and text editing)
     if (m_omnibox.handleMouseDown(mx, my)) {
         return true;
     }

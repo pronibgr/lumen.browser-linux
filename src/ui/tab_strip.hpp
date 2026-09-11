@@ -17,7 +17,7 @@ public:
     TabStrip();
 
     void setTabs(const std::vector<std::shared_ptr<Engine::WebTab>>& tabs, int activeIndex);
-    void setCallbacks(TabSwitchCallback onSwitch, TabCreateCallback onCreate, TabCloseCallback onClose);
+    void setCallbacks(TabSwitchCallback onSwitch, TabCloseCallback onClose);
 
     void draw(cairo_t* cr, double x, double y, double width, double height);
     void update(float dt);
@@ -37,13 +37,11 @@ private:
     int m_activeIndex = 0;
 
     TabSwitchCallback m_onSwitch;
-    TabCreateCallback m_onCreate;
     TabCloseCallback  m_onClose;
 
     // Hover state
     int  m_hoveredIndex      = -1;
     int  m_hoveredCloseIndex = -1;
-    bool m_hoveredAddButton  = false;
 
     // Scroll (when too many tabs)
     double m_scrollOffset       = 0.0;

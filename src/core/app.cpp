@@ -3,11 +3,148 @@
 #include "storage/database.hpp"
 #include "omnibox/converter.hpp"
 #include <iostream>
+#include <fstream>
+#include <sstream>
 #include <algorithm>
+#include <cmath>
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
 #include <gdk/gdk.h>
 #include <curl/curl.h>
 
 namespace Blueprint::Core {
+
+namespace {
+
+void setupKWinWindowRules() {
+    const char* desktop = std::getenv("XDG_CURRENT_DESKTOP");
+    const char* kdeSession = std::getenv("KDE_FULL_SESSION");
+    bool isKde = (desktop && std::string(desktop).find("KDE") != std::string::npos) || (kdeSession != nullptr);
+    if (!isKde) return;
+
+    const char* home = std::getenv("HOME");
+    if (!home) return;
+
+    std::string configPath = std::string(home) + "/.config/kwinrulesrc";
+    std::ifstream inFile(configPath);
+    std::string content;
+    if (inFile.is_open()) {
+        std::stringstream ss;
+        ss << inFile.rdbuf();
+        content = ss.str();
+        inFile.close();
+    }
+
+    bool hasLumen = (content.find("lumen_browser_rule") != std::string::npos);
+    bool hasNull = (content.find("l_null_rule") != std::string::npos);
+    bool hasBlueprint = (content.find("blueprint_browser_rule") != std::string::npos);
+
+    if (hasLumen && hasNull && hasBlueprint) {
+        return;
+    }
+
+    std::vector<std::string> ruleList;
+    std::stringstream ss(content);
+    std::string line;
+    bool inGeneral = false;
+
+    while (std::getline(ss, line)) {
+        std::string trimmed = line;
+        while (!trimmed.empty() && (trimmed.back() == '\r' || trimmed.back() == ' ')) trimmed.pop_back();
+        if (trimmed == "[General]") {
+            inGeneral = true;
+        } else if (!trimmed.empty() && trimmed.front() == '[') {
+            inGeneral = false;
+        } else if (inGeneral && trimmed.rfind("rules=", 0) == 0) {
+            std::string rStr = trimmed.substr(6);
+            std::stringstream rss(rStr);
+            std::string item;
+            while (std::getline(rss, item, ',')) {
+                while (!item.empty() && (item.back() == '\r' || item.back() == ' ')) item.pop_back();
+                while (!item.empty() && (item.front() == ' ')) item.erase(item.begin());
+                if (!item.empty()) ruleList.push_back(item);
+            }
+        }
+    }
+
+    auto addRuleIfMissing = [&](const std::string& name) {
+        if (std::find(ruleList.begin(), ruleList.end(), name) == ruleList.end()) {
+            ruleList.push_back(name);
+        }
+    };
+    addRuleIfMissing("lumen_browser_rule");
+    addRuleIfMissing("l_null_rule");
+    addRuleIfMissing("blueprint_browser_rule");
+
+    std::string newRulesStr;
+    for (size_t i = 0; i < ruleList.size(); ++i) {
+        if (i > 0) newRulesStr += ",";
+        newRulesStr += ruleList[i];
+    }
+
+    std::string updatedContent;
+    if (content.find("[General]") == std::string::npos) {
+        updatedContent = "[General]\ncount=" + std::to_string(ruleList.size()) + "\nrules=" + newRulesStr + "\n\n" + content;
+    } else {
+        std::stringstream inStream(content);
+        inGeneral = false;
+        while (std::getline(inStream, line)) {
+            std::string trimmed = line;
+            while (!trimmed.empty() && (trimmed.back() == '\r' || trimmed.back() == ' ')) trimmed.pop_back();
+            if (trimmed == "[General]") {
+                inGeneral = true;
+                updatedContent += line + "\n";
+                updatedContent += "count=" + std::to_string(ruleList.size()) + "\n";
+                updatedContent += "rules=" + newRulesStr + "\n";
+            } else if (inGeneral && (trimmed.rfind("count=", 0) == 0 || trimmed.rfind("rules=", 0) == 0)) {
+                continue;
+            } else {
+                if (!trimmed.empty() && trimmed.front() == '[') {
+                    inGeneral = false;
+                }
+                updatedContent += line + "\n";
+            }
+        }
+    }
+
+    if (updatedContent.find("[lumen_browser_rule]") == std::string::npos) {
+        updatedContent += "\n[lumen_browser_rule]\n"
+                          "Description=Lumen Browser Borderless\n"
+                          "noborder=true\n"
+                          "noborderrule=2\n"
+                          "wmclass=lumen-browser\n"
+                          "wmclassmatch=1\n";
+    }
+    if (updatedContent.find("[l_null_rule]") == std::string::npos) {
+        updatedContent += "\n[l_null_rule]\n"
+                          "Description=Lumen Null Borderless\n"
+                          "noborder=true\n"
+                          "noborderrule=2\n"
+                          "wmclass=l.null\n"
+                          "wmclassmatch=1\n";
+    }
+    if (updatedContent.find("[blueprint_browser_rule]") == std::string::npos) {
+        updatedContent += "\n[blueprint_browser_rule]\n"
+                          "Description=Blueprint Browser Borderless\n"
+                          "noborder=true\n"
+                          "noborderrule=2\n"
+                          "wmclass=blueprint_browser\n"
+                          "wmclassmatch=1\n";
+    }
+
+    std::ofstream outFile(configPath);
+    if (outFile.is_open()) {
+        outFile << updatedContent;
+        outFile.close();
+
+        if (std::system("qdbus6 org.kde.KWin /KWin org.kde.KWin.reconfigure 2>/dev/null") != 0) {
+            (void)std::system("qdbus org.kde.KWin /KWin org.kde.KWin.reconfigure 2>/dev/null");
+        }
+    }
+}
+
+} // namespace
 
 // ─────────────────────────────────────────────────────────────────────────────
 // BrowserWindow Implementation
@@ -51,6 +188,65 @@ bool BrowserWindow::initialize() {
     m_window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
     gtk_window_set_default_size(GTK_WINDOW(m_window), m_winW, m_winH);
     gtk_window_set_position(GTK_WINDOW(m_window), GTK_WIN_POS_CENTER);
+    gtk_window_set_decorated(GTK_WINDOW(m_window), FALSE);
+    #pragma GCC diagnostic push
+    #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+    gtk_window_set_has_resize_grip(GTK_WINDOW(m_window), FALSE);
+    #pragma GCC diagnostic pop
+    gtk_widget_set_app_paintable(m_window, TRUE);
+
+    GdkScreen* screen = gtk_widget_get_screen(m_window);
+    GdkVisual* visual = gdk_screen_get_rgba_visual(screen);
+    if (visual) {
+        gtk_widget_set_visual(m_window, visual);
+    }
+
+    g_signal_connect(m_window, "realize", G_CALLBACK(+[](GtkWidget* widget, gpointer) {
+        GdkWindow* gdkWin = gtk_widget_get_window(widget);
+        if (gdkWin) {
+            gdk_window_set_decorations(gdkWin, static_cast<GdkWMDecoration>(0));
+        }
+    }), nullptr);
+
+    g_signal_connect(m_window, "draw", G_CALLBACK(+[](GtkWidget* widget, cairo_t* cr, gpointer data) -> gboolean {
+        auto* self = static_cast<BrowserWindow*>(data);
+        int w = gtk_widget_get_allocated_width(widget);
+        int h = gtk_widget_get_allocated_height(widget);
+
+        // Clear window surface to transparent
+        cairo_set_source_rgba(cr, 0, 0, 0, 0);
+        cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
+        cairo_paint(cr);
+        cairo_set_operator(cr, CAIRO_OPERATOR_OVER);
+
+        double r = self->m_topbar.isMaximized() ? 0.0 : 12.0;
+
+        cairo_new_path(cr);
+        if (r > 0.0) {
+            cairo_arc(cr, w - r, r, r, -M_PI / 2, 0);
+            cairo_arc(cr, w - r, h - r, r, 0, M_PI / 2);
+            cairo_arc(cr, r, h - r, r, M_PI / 2, M_PI);
+            cairo_arc(cr, r, r, r, M_PI, 3 * M_PI / 2);
+            cairo_close_path(cr);
+        } else {
+            cairo_rectangle(cr, 0, 0, w, h);
+        }
+
+        if (self->m_isEphemeral) {
+            cairo_set_source_rgb(cr, 0.027, 0.031, 0.035); // #070809
+        } else {
+            cairo_set_source_rgb(cr, 0.055, 0.067, 0.086); // #0E1116
+        }
+        cairo_fill_preserve(cr);
+
+        if (r > 0.0) {
+            cairo_set_source_rgba(cr, 1.0, 1.0, 1.0, 0.08);
+            cairo_set_line_width(cr, 1.0);
+            cairo_stroke(cr);
+        }
+
+        return FALSE; // Allow child widgets to draw
+    }), this);
 
     if (m_isEphemeral) {
         gtk_window_set_title(GTK_WINDOW(m_window), "l.null");
@@ -106,18 +302,28 @@ bool BrowserWindow::initialize() {
         }
     }
 
-    // Dark solid background for window and containers
+    // Transparent window background with rounded styling for containers
     GtkCssProvider* cssProvider = gtk_css_provider_new();
     std::string appCss = m_isEphemeral ?
-        "window, .background, box, stack, stack > * {\n"
-        "    background-color: #070809;\n"
+        "window, .background {\n"
+        "    background-color: transparent;\n"
+        "    background: transparent;\n"
+        "}\n"
+        "box, stack, stack > * {\n"
+        "    background-color: transparent;\n"
+        "    background: transparent;\n"
         "}\n" :
-        "window, .background, box, stack, stack > * {\n"
-        "    background-color: #0E1116;\n"
+        "window, .background {\n"
+        "    background-color: transparent;\n"
+        "    background: transparent;\n"
+        "}\n"
+        "box, stack, stack > * {\n"
+        "    background-color: transparent;\n"
+        "    background: transparent;\n"
         "}\n";
     gtk_css_provider_load_from_data(cssProvider, appCss.c_str(), -1, nullptr);
-    gtk_style_context_add_provider(
-        gtk_widget_get_style_context(m_window),
+    gtk_style_context_add_provider_for_screen(
+        screen,
         GTK_STYLE_PROVIDER(cssProvider),
         GTK_STYLE_PROVIDER_PRIORITY_APPLICATION
     );
@@ -167,6 +373,18 @@ bool BrowserWindow::initialize() {
     // Window signals
     g_signal_connect(m_window, "key-press-event", G_CALLBACK(onWindowKeyPress), this);
     g_signal_connect(m_window, "scroll-event", G_CALLBACK(onWindowScroll), this);
+    g_signal_connect(m_window, "window-state-event", G_CALLBACK(+[](GtkWidget*, GdkEventWindowState* event, gpointer data) -> gboolean {
+        auto* self = static_cast<BrowserWindow*>(data);
+        bool max = (event->new_window_state & GDK_WINDOW_STATE_MAXIMIZED) != 0;
+        self->m_topbar.setMaximized(max);
+        if (self->m_topbarArea) {
+            gtk_widget_queue_draw(self->m_topbarArea);
+        }
+        if (self->m_window) {
+            gtk_widget_queue_draw(GTK_WIDGET(self->m_window));
+        }
+        return FALSE;
+    }), this);
     g_signal_connect(m_window, "destroy", G_CALLBACK(+[](GtkWidget*, gpointer data) {
         auto* self = static_cast<BrowserWindow*>(data);
         self->m_window = nullptr; // prevent double destroy
@@ -180,9 +398,31 @@ bool BrowserWindow::initialize() {
     // Topbar callbacks
     m_topbar.getTabStrip().setCallbacks(
         [this](int oldIdx, int newIdx) { switchTab(oldIdx, newIdx); },
-        [this]()                       { createTab(); },
         [this](int idx)                { closeTab(idx); }
     );
+
+    m_topbar.setOnNewTab([this]() {
+        createTab();
+    });
+    m_topbar.setOnMinimize([this]() {
+        if (m_window) {
+            gtk_window_iconify(GTK_WINDOW(m_window));
+        }
+    });
+    m_topbar.setOnMaximizeToggle([this]() {
+        if (m_window) {
+            if (m_topbar.isMaximized()) {
+                gtk_window_unmaximize(GTK_WINDOW(m_window));
+            } else {
+                gtk_window_maximize(GTK_WINDOW(m_window));
+            }
+        }
+    });
+    m_topbar.setOnCloseWindow([this]() {
+        if (m_window) {
+            gtk_widget_destroy(m_window);
+        }
+    });
 
     m_topbar.getOmnibox().setOnNavigate([this](const std::string& url) {
         navigateActiveTab(url);
@@ -288,7 +528,7 @@ bool BrowserWindow::initialize() {
 
     Engine::WebTab::setInternalMediaCommander([this](const std::string& action, double param) -> bool {
         for (const auto& tab : m_tabs) {
-            if (tab && tab->isPlayingAudio() && tab->getUrl() != "lumen://newtab") {
+            if (tab && tab->getWebView() && WEBKIT_IS_WEB_VIEW(tab->getWebView()) && tab->isPlayingAudio() && tab->getUrl() != "lumen://newtab") {
                 std::string js;
                 if (action == "playPause") {
                     js = "(() => { const v = document.querySelector('video, audio'); if (v) { if (v.paused) v.play(); else v.pause(); } })()";
@@ -349,29 +589,32 @@ void BrowserWindow::createTab(const std::string& url, bool switchToNewTab) {
     gtk_widget_show_all(tab->getWebView());
 
     // Tab signal callbacks
+    int tabId = newId;
     tab->setCallbacks(
-        [this, tab](const std::string&) {
-            syncTopbar();
-            gtk_widget_queue_draw(m_topbarArea);
+        [this, tabId](const std::string&) {
+            if (validActive() && m_tabs[m_activeIdx]->getId() == tabId) {
+                syncTopbar();
+                gtk_widget_queue_draw(m_topbarArea);
+            }
         },
-        [this, tab](const std::string& u) {
-            if (validActive() && m_tabs[m_activeIdx] == tab) {
+        [this, tabId](const std::string& u) {
+            if (validActive() && m_tabs[m_activeIdx]->getId() == tabId) {
                 syncTopbar();
                 if (!m_isEphemeral) {
-                    Storage::Database::instance().addHistory(u, tab->getTitle());
+                    Storage::Database::instance().addHistory(u, m_tabs[m_activeIdx]->getTitle());
                 }
             }
         },
-        [this, tab](float prog) {
-            if (validActive() && m_tabs[m_activeIdx] == tab) {
+        [this, tabId](float prog) {
+            if (validActive() && m_tabs[m_activeIdx]->getId() == tabId) {
                 m_topbar.setLoadProgress(prog);
                 gtk_widget_queue_draw(m_topbarArea);
             }
         }
     );
 
-    tab->setOnSiteDataChanged([this, tab](uint64_t) {
-        if (validActive() && m_tabs[m_activeIdx] == tab) {
+    tab->setOnSiteDataChanged([this, tabId](uint64_t) {
+        if (validActive() && m_tabs[m_activeIdx]->getId() == tabId) {
             syncTopbar();
             gtk_widget_queue_draw(m_topbarArea);
         }
@@ -404,8 +647,46 @@ void BrowserWindow::createTab(const std::string& url, bool switchToNewTab) {
 void BrowserWindow::closeTab(int index) {
     if (index < 0 || index >= static_cast<int>(m_tabs.size())) return;
 
+    // 1. Temporarily disable stack transition to prevent GtkStack animation use-after-free
+    gtk_stack_set_transition_type(GTK_STACK(m_stack), GTK_STACK_TRANSITION_TYPE_NONE);
+
     auto tab = m_tabs[index];
-    gtk_container_remove(GTK_CONTAINER(m_stack), tab->getWebView());
+
+    // 2. Clear all callbacks and stop timers immediately
+    tab->stopMediaPoll();
+    tab->setCallbacks(nullptr, nullptr, nullptr);
+    tab->setOnSiteDataChanged(nullptr);
+    tab->setOnNewTabRequested(nullptr);
+    tab->setOnFullscreenToggled(nullptr);
+
+    // 3. Compute new active index before modifying m_tabs
+    int newActiveIdx = m_activeIdx;
+    if (index < m_activeIdx) {
+        newActiveIdx--;
+    } else if (index == m_activeIdx) {
+        if (newActiveIdx >= static_cast<int>(m_tabs.size()) - 1) {
+            newActiveIdx = static_cast<int>(m_tabs.size()) - 2;
+        }
+    }
+
+    // 4. If closing active tab and other tabs exist, switch visible child in stack FIRST
+    if (index == m_activeIdx && m_tabs.size() > 1 && newActiveIdx >= 0 && newActiveIdx < static_cast<int>(m_tabs.size())) {
+        std::string nextTabName = "tab_" + std::to_string(m_tabs[newActiveIdx]->getId());
+        if (gtk_stack_get_child_by_name(GTK_STACK(m_stack), nextTabName.c_str())) {
+            gtk_stack_set_visible_child_name(GTK_STACK(m_stack), nextTabName.c_str());
+        }
+    }
+
+    // 5. Remove webview from container safely
+    GtkWidget* viewWidget = tab->getWebView();
+    if (viewWidget && GTK_IS_WIDGET(viewWidget)) {
+        if (WEBKIT_IS_WEB_VIEW(viewWidget)) {
+            webkit_web_view_stop_loading(WEBKIT_WEB_VIEW(viewWidget));
+        }
+        gtk_container_remove(GTK_CONTAINER(m_stack), viewWidget);
+    }
+
+    // 6. Erase tab from vector
     m_tabs.erase(m_tabs.begin() + index);
 
     if (m_tabs.empty()) {
@@ -415,9 +696,14 @@ void BrowserWindow::closeTab(int index) {
         return;
     }
 
-    m_activeIdx = std::clamp(m_activeIdx, 0, static_cast<int>(m_tabs.size()) - 1);
+    // 7. Update active index and restore transition
+    m_activeIdx = std::clamp(newActiveIdx, 0, static_cast<int>(m_tabs.size()) - 1);
     std::string tabName = "tab_" + std::to_string(m_tabs[m_activeIdx]->getId());
-    gtk_stack_set_visible_child_name(GTK_STACK(m_stack), tabName.c_str());
+    if (gtk_stack_get_child_by_name(GTK_STACK(m_stack), tabName.c_str())) {
+        gtk_stack_set_visible_child_name(GTK_STACK(m_stack), tabName.c_str());
+    }
+    gtk_stack_set_transition_type(GTK_STACK(m_stack), GTK_STACK_TRANSITION_TYPE_SLIDE_LEFT_RIGHT);
+
     syncTopbar();
     gtk_widget_queue_draw(m_topbarArea);
 }
@@ -428,7 +714,9 @@ void BrowserWindow::switchTab(int oldIdx, int newIdx) {
 
     std::string tabName = "tab_" + std::to_string(m_tabs[newIdx]->getId());
     if (newIdx == oldIdx) {
-        gtk_stack_set_visible_child_name(GTK_STACK(m_stack), tabName.c_str());
+        if (gtk_stack_get_child_by_name(GTK_STACK(m_stack), tabName.c_str())) {
+            gtk_stack_set_visible_child_name(GTK_STACK(m_stack), tabName.c_str());
+        }
         syncTopbar();
         gtk_widget_queue_draw(m_topbarArea);
         return;
@@ -522,10 +810,27 @@ gboolean BrowserWindow::onTopbarMotion(GtkWidget* widget, GdkEventMotion* event,
 gboolean BrowserWindow::onTopbarButtonPress(GtkWidget* widget, GdkEventButton* event, gpointer data) {
     auto* self = static_cast<BrowserWindow*>(data);
     if (event->button == 1) {
-        self->m_topbar.handleMouseDown(event->x, event->y);
+        bool handled = self->m_topbar.handleMouseDown(event->x, event->y);
         gtk_widget_queue_draw(widget);
         if (self->m_topbar.isAnyOverlayActive()) {
             gtk_widget_queue_draw(self->m_overlayArea);
+        }
+        if (!handled && event->y <= Theme::ROW1_HEIGHT && self->m_window) {
+            if (event->type == GDK_2BUTTON_PRESS) {
+                if (self->m_topbar.isMaximized()) {
+                    gtk_window_unmaximize(GTK_WINDOW(self->m_window));
+                } else {
+                    gtk_window_maximize(GTK_WINDOW(self->m_window));
+                }
+                return TRUE;
+            } else if (event->type == GDK_BUTTON_PRESS) {
+                gtk_window_begin_move_drag(GTK_WINDOW(self->m_window),
+                                           event->button,
+                                           static_cast<gint>(event->x_root),
+                                           static_cast<gint>(event->y_root),
+                                           event->time);
+                return TRUE;
+            }
         }
         return TRUE;
     } else if (event->button == 2) {
@@ -841,6 +1146,9 @@ bool Application::initialize(int argc, char* argv[]) {
     if (argc > 1 && argv[1] && argv[1][0] != '\0') {
         startUrl = argv[1];
     }
+
+    // Ensure window rules on KDE Wayland to hide OS titlebar
+    setupKWinWindowRules();
 
     // Create the primary browser window
     createWindow(/*isEphemeral=*/false, startUrl);

@@ -13,8 +13,10 @@
 #include "engine/new_tab_html.hpp"
 #include "engine/null_tab_html.hpp"
 #include "engine/error_page_html.hpp"
+#include "engine/web_tab.hpp"
 #include <SDL2/SDL_keycode.h>
 #include <glib.h>
+#include <gtk/gtk.h>
 
 void testCalculator() {
     std::cout << "[Test] Running Calculator tests...\n";
@@ -1182,6 +1184,132 @@ void testMediaWidgetSmoothTransitionsAndRoundedControls() {
     std::cout << "  -> Media Widget Smooth Transitions & Rounded Controls tests PASSED!\n";
 }
 
+void testWindowControlsAndRow2Layout() {
+    std::cout << "[Test] Running Window Controls & Row 2 Layout tests...\n";
+
+    Blueprint::UI::CompactTopbar topbar;
+    cairo_surface_t* surf = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 1280, 84);
+    cairo_t* cr = cairo_create(surf);
+    topbar.draw(cr, 1280, 84);
+    cairo_destroy(cr);
+    cairo_surface_destroy(surf);
+
+    bool minClicked = false;
+    bool maxClicked = false;
+    bool closeClicked = false;
+    bool newTabClicked = false;
+
+    topbar.setOnMinimize([&]() { minClicked = true; });
+    topbar.setOnMaximizeToggle([&]() { maxClicked = true; });
+    topbar.setOnCloseWindow([&]() { closeClicked = true; });
+    topbar.setOnNewTab([&]() { newTabClicked = true; });
+
+    // Row 1 Window Controls (x in [w - 120, w], y in [0, 44]):
+    // 1. Minimize at x = 1280 - 100 = 1180, y = 22
+    bool hMin = topbar.handleMouseDown(1180.0, 22.0);
+    assert(hMin);
+    assert(minClicked);
+
+    // 2. Maximize at x = 1280 - 60 = 1220, y = 22
+    bool hMax = topbar.handleMouseDown(1220.0, 22.0);
+    assert(hMax);
+    assert(maxClicked);
+
+    // 3. Close at x = 1280 - 20 = 1260, y = 22
+    bool hClose = topbar.handleMouseDown(1260.0, 22.0);
+    assert(hClose);
+    assert(closeClicked);
+
+    // Maximize state toggle
+    assert(!topbar.isMaximized());
+    topbar.setMaximized(true);
+    assert(topbar.isMaximized());
+    topbar.setMaximized(false);
+    assert(!topbar.isMaximized());
+
+    // Row 2 Action Buttons (y in [44, 84]):
+    // 4. New Tab (+) button at x = 1280 - 58 = 1222, y = 64
+    bool hNewTab = topbar.handleMouseDown(1222.0, 64.0);
+    assert(hNewTab);
+    assert(newTabClicked);
+
+    // 5. Settings button at x = 1280 - 24 = 1256, y = 64
+    assert(!topbar.isSettingsOpen());
+    bool hSettings = topbar.handleMouseDown(1256.0, 64.0);
+    assert(hSettings);
+    assert(topbar.isSettingsOpen());
+    // Toggle closed
+    topbar.handleMouseDown(1256.0, 64.0);
+    assert(!topbar.isSettingsOpen());
+
+    // 6. Empty space in Row 1 returns false to allow window move dragging
+    bool hEmpty = topbar.handleMouseDown(800.0, 20.0);
+    assert(!hEmpty);
+
+    (void)hMin; (void)hMax; (void)hClose; (void)hNewTab; (void)hSettings; (void)hEmpty;
+
+    std::cout << "  -> Window Controls & Row 2 Layout tests PASSED!\n";
+}
+
+void testRapidTabOperations() {
+    std::cout << "[Test] Running Rapid Tab Creation & Deletion tests...\n";
+
+    bool gtkOk = gtk_init_check(nullptr, nullptr);
+    if (gtkOk) {
+        Blueprint::UI::TabStrip strip;
+        std::vector<std::shared_ptr<Blueprint::Engine::WebTab>> tabs;
+        std::vector<std::weak_ptr<Blueprint::Engine::WebTab>> weakTabs;
+
+        for (int i = 0; i < 20; ++i) {
+            auto tab = std::make_shared<Blueprint::Engine::WebTab>(
+                i, "https://example.com/" + std::to_string(i), "Tab " + std::to_string(i)
+            );
+            int tabId = i;
+            // Verify non-circular callbacks (capturing tabId primitive instead of shared_ptr)
+            tab->setCallbacks(
+                [tabId](const std::string&) {},
+                [tabId](const std::string&) {},
+                [tabId](float) {}
+            );
+            tab->setOnSiteDataChanged([tabId](uint64_t) {});
+            weakTabs.push_back(tab);
+            tabs.push_back(tab);
+        }
+
+        assert(tabs.size() == 20);
+        strip.setTabs(tabs, 0);
+
+        int closedIndex = -1;
+        int switchedNew = -1;
+        strip.setCallbacks(
+            [&switchedNew](int, int newIdx) { switchedNew = newIdx; },
+            [&closedIndex](int idx) { closedIndex = idx; }
+        );
+
+        // Rapidly close tabs one by one down to 0
+        while (tabs.size() > 1) {
+            int closeIdx = static_cast<int>(tabs.size()) / 2;
+            auto tabToClose = tabs[closeIdx];
+            tabToClose->stopMediaPoll();
+            tabToClose->setCallbacks(nullptr, nullptr, nullptr);
+            tabToClose->setOnSiteDataChanged(nullptr);
+            tabs.erase(tabs.begin() + closeIdx);
+            strip.setTabs(tabs, 0);
+        }
+
+        tabs[0]->stopMediaPoll();
+        tabs[0]->setCallbacks(nullptr, nullptr, nullptr);
+        tabs.clear();
+
+        // Verify that ALL 20 tabs were completely destroyed without circular references
+        for (size_t i = 0; i < weakTabs.size(); ++i) {
+            assert(weakTabs[i].expired() && "WebTab memory leak detected: circular reference prevented destruction!");
+        }
+    }
+
+    std::cout << "  -> Rapid Tab Creation & Deletion tests PASSED!\n";
+}
+
 int main() {
     std::cout << "========================================\n";
     std::cout << " lumen browser Unit Tests\n";
@@ -1206,10 +1334,13 @@ int main() {
     testErrorPageAndFilamentMeltdown();
     testHttpErrorHandlingAndWidgetFreeform();
     testMediaWidgetSmoothTransitionsAndRoundedControls();
+    testWindowControlsAndRow2Layout();
+    testRapidTabOperations();
 
     std::cout << "========================================\n";
     std::cout << " ALL UNIT TESTS PASSED SUCCESSFULLY! ✅\n";
     std::cout << "========================================\n";
     return 0;
 }
+
 

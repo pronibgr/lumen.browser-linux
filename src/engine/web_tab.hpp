@@ -129,6 +129,7 @@ private:
     float m_closeProgress = 0.f;
 
     GtkWidget* m_webView = nullptr;
+    WebKitUserContentManager* m_ucm = nullptr;
 
     std::function<void(const std::string&)> m_onTitleChange;
     std::function<void(const std::string&)> m_onUrlChange;
