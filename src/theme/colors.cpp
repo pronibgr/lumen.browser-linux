@@ -3,8 +3,33 @@
 #include <algorithm>
 #include <cmath>
 #include <ctime>
+#include <cstdio>
 
 namespace Blueprint::Theme {
+
+std::string Color::toCssHex() const {
+    int ri = std::clamp(static_cast<int>(std::round(r * 255.0f)), 0, 255);
+    int gi = std::clamp(static_cast<int>(std::round(g * 255.0f)), 0, 255);
+    int bi = std::clamp(static_cast<int>(std::round(b * 255.0f)), 0, 255);
+    char buf[16];
+    std::snprintf(buf, sizeof(buf), "#%02X%02X%02X", ri, gi, bi);
+    return std::string(buf);
+}
+
+std::string Color::toCssRgba() const {
+    int ri = std::clamp(static_cast<int>(std::round(r * 255.0f)), 0, 255);
+    int gi = std::clamp(static_cast<int>(std::round(g * 255.0f)), 0, 255);
+    int bi = std::clamp(static_cast<int>(std::round(b * 255.0f)), 0, 255);
+    if (a >= 0.999f) {
+        char buf[16];
+        std::snprintf(buf, sizeof(buf), "#%02X%02X%02X", ri, gi, bi);
+        return std::string(buf);
+    } else {
+        char buf[32];
+        std::snprintf(buf, sizeof(buf), "rgba(%d, %d, %d, %.3f)", ri, gi, bi, a);
+        return std::string(buf);
+    }
+}
 
 // static global live dynamic colors
 Color BG_ABYSS     = Color::fromHex(0x0C1214);
@@ -327,6 +352,8 @@ void ThemeManager::setTheme(ThemeId id, bool animated) {
     // persist to database
     Blueprint::Storage::Database::instance().setSetting("theme", target.name);
 
+    notifyListeners(target);
+
     if (!animated) {
         m_animating = false;
         m_animProgress = 1.0f;
@@ -339,6 +366,27 @@ void ThemeManager::setTheme(ThemeId id, bool animated) {
     m_animTo = target;
     m_animProgress = 0.0f;
     m_animating = true;
+}
+
+int ThemeManager::addThemeListener(ThemeCallback cb) {
+    int id = m_nextListenerId++;
+    m_listeners.push_back({id, std::move(cb)});
+    return id;
+}
+
+void ThemeManager::removeThemeListener(int id) {
+    m_listeners.erase(
+        std::remove_if(m_listeners.begin(), m_listeners.end(),
+                       [id](const auto& pair) { return pair.first == id; }),
+        m_listeners.end());
+}
+
+void ThemeManager::notifyListeners(const Palette& p) {
+    for (const auto& pair : m_listeners) {
+        if (pair.second) {
+            pair.second(p);
+        }
+    }
 }
 
 void ThemeManager::setThemeByName(const std::string& name, bool animated) {

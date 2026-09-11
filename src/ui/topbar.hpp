@@ -23,6 +23,11 @@ public:
     void setNavState(bool canBack, bool canFwd, bool canReload = true);
     void setTlsInfo(const Engine::TlsCertificateInfo& info);
     void setSiteData(uint64_t bytes, bool canClear);
+    void setEphemeral(bool ephem) {
+        m_isEphemeral = ephem;
+        m_omnibox.setEphemeral(ephem);
+    }
+    bool isEphemeral() const { return m_isEphemeral; }
 
     TabStrip&      getTabStrip()    { return m_tabStrip; }
     OmniboxWidget& getOmnibox()     { return m_omnibox; }
@@ -55,6 +60,7 @@ public:
     bool wantsRedraw() const;
 
 private:
+    bool          m_isEphemeral = false;
     TabStrip      m_tabStrip;
     OmniboxWidget m_omnibox;
     NeonProgress  m_neonProgress;

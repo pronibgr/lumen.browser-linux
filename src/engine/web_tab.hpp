@@ -5,6 +5,7 @@
 #include <functional>
 #include <gtk/gtk.h>
 #include <webkit2/webkit2.h>
+#include "theme/colors.hpp"
 
 namespace Blueprint::Engine {
 
@@ -18,7 +19,8 @@ struct TlsCertificateInfo {
 
 class WebTab {
 public:
-    WebTab(int id, const std::string& url = "lumen://newtab", const std::string& title = "New Tab");
+    WebTab(int id, const std::string& url = "lumen://newtab", const std::string& title = "New Tab",
+           WebKitWebContext* context = nullptr, bool isEphemeral = false);
     ~WebTab();
 
     int  getId()   const { return m_id; }
@@ -28,6 +30,7 @@ public:
     bool  isLoading()       const { return m_isLoading; }
     bool  isClosing()       const { return m_closing; }
     float getCloseProgress() const { return m_closeProgress; }
+    bool  isEphemeral()     const { return m_isEphemeral; }
 
     void setLoadProgress(float p) { m_loadProgress = p; }
     void setIsLoading(bool v)     { m_isLoading = v; }
@@ -79,14 +82,38 @@ public:
     // callback when site storage size finishes fetching
     void setOnSiteDataChanged(std::function<void(uint64_t bytes)> cb) { m_onSiteDataChanged = cb; }
 
-    // callback when page requests opening a new window/tab (e.g. video links with target="_blank")
-    void setOnNewTabRequested(std::function<void(const std::string& url)> cb) { m_onNewTabRequested = cb; }
+    // callback when page requests opening a new window/tab (e.g. video links with target="_blank", middle-click)
+    void setOnNewTabRequested(std::function<void(const std::string& url, bool inBackground)> cb) { m_onNewTabRequested = cb; }
 
     // callback when HTML5 video enters or leaves fullscreen
     void setOnFullscreenToggled(std::function<void(bool fullscreen)> cb) { m_onFullscreenToggled = cb; }
 
+    static std::string sanitizeTrackingParams(const std::string& url);
+
+    void applyTheme(const Theme::Palette& pal);
+    void loadErrorPage(const std::string& failingUri, const std::string& errorCode, const std::string& errorTitle, const std::string& errorDesc, const std::string& diagCode = "");
+    bool isErrorPage() const { return m_isErrorPage; }
+
+    // Audio playback status
+    bool isPlayingAudio() const;
+
+    // System MPRIS and Internal Media Integration
+    using InternalMediaProvider = std::function<std::string()>;
+    using InternalMediaCommander = std::function<bool(const std::string& action, double param)>;
+    static void setInternalMediaProvider(InternalMediaProvider provider);
+    static void setInternalMediaCommander(InternalMediaCommander commander);
+
+    void syncSystemMediaState();
+    void stopMediaPoll();
+    static std::string querySystemMprisJson();
+    static void executeMprisCommand(const std::string& action, double param);
+    void handleMediaScriptMessage(const std::string& messageJson);
+
 private:
     int  m_id = 0;
+    bool m_isEphemeral = false;
+    bool m_isErrorPage = false;
+    std::string m_failedUri;
     std::string m_url;
     std::string m_title;
     float m_loadProgress = 1.f;
@@ -95,6 +122,8 @@ private:
 
     uint64_t m_siteDataBytes = 0;
     bool     m_siteDataKnown = false;
+
+    guint m_mediaPollSourceId = 0;
 
     bool  m_closing = false;
     float m_closeProgress = 0.f;
@@ -105,11 +134,12 @@ private:
     std::function<void(const std::string&)> m_onUrlChange;
     std::function<void(float)>              m_onProgressChange;
     std::function<void(uint64_t)>           m_onSiteDataChanged;
-    std::function<void(const std::string&)> m_onNewTabRequested;
+    std::function<void(const std::string&, bool)> m_onNewTabRequested;
     std::function<void(bool)>               m_onFullscreenToggled;
 
     void setupWebKitSignals();
     void loadNewTabHtml();
+    void loadNullTabHtml();
 };
 
 } // namespace Blueprint::Engine

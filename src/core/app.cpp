@@ -9,41 +9,69 @@
 
 namespace Blueprint::Core {
 
-Application::Application() {}
-Application::~Application() { shutdown(); }
+// ─────────────────────────────────────────────────────────────────────────────
+// BrowserWindow Implementation
+// ─────────────────────────────────────────────────────────────────────────────
 
-bool Application::initialize(int argc, char* argv[]) {
-    // Prevent GPU driver crashes on Wayland/NVIDIA setups
-    setenv("__NV_DISABLE_EXPLICIT_SYNC", "1", 1);
-    unsetenv("WEBKIT_DISABLE_DMABUF_RENDERER");
-
-    curl_global_init(CURL_GLOBAL_ALL);
-
-    if (!gtk_init_check(&argc, &argv)) {
-        std::cerr << "[Core] GTK initialization failed\n";
-        return false;
+BrowserWindow::BrowserWindow(Application* app, bool isEphemeral, const std::string& startUrl)
+    : m_app(app), m_isEphemeral(isEphemeral), m_startUrl(startUrl) {
+    if (m_isEphemeral) {
+        m_webContext = webkit_web_context_new_ephemeral();
+        m_topbar.setEphemeral(true);
     }
+}
 
-    Storage::Database::instance().initialize();
+BrowserWindow::~BrowserWindow() {
+    if (m_heartbeatTimerId) {
+        g_source_remove(m_heartbeatTimerId);
+        m_heartbeatTimerId = 0;
+    }
+    if (m_themeListenerId) {
+        Theme::ThemeManager::instance().removeThemeListener(m_themeListenerId);
+        m_themeListenerId = 0;
+    }
+    if (m_window) {
+        GtkWidget* w = m_window;
+        m_window = nullptr;
+        gtk_widget_destroy(w);
+    }
+    if (m_isEphemeral && m_webContext) {
+        g_object_unref(m_webContext);
+        m_webContext = nullptr;
+    }
+}
 
-    g_set_prgname("lumen-browser");
-    g_set_application_name("lumen browser");
+bool BrowserWindow::initialize() {
+    m_themeListenerId = Theme::ThemeManager::instance().addThemeListener([this](const Theme::Palette& pal) {
+        for (auto& tab : m_tabs) {
+            if (tab) tab->applyTheme(pal);
+        }
+    });
 
     m_window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
     gtk_window_set_default_size(GTK_WINDOW(m_window), m_winW, m_winH);
-    gtk_window_set_title(GTK_WINDOW(m_window), "lumen browser");
     gtk_window_set_position(GTK_WINDOW(m_window), GTK_WIN_POS_CENTER);
-    #pragma GCC diagnostic push
-    #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-    gtk_window_set_wmclass(GTK_WINDOW(m_window), "lumen-browser", "lumen-browser");
-    #pragma GCC diagnostic pop
-    gtk_window_set_icon_name(GTK_WINDOW(m_window), "lumen-browser");
 
-    // Apply browser logo as window and taskbar icon (supports multi-size pixbufs)
+    if (m_isEphemeral) {
+        gtk_window_set_title(GTK_WINDOW(m_window), "l.null");
+        #pragma GCC diagnostic push
+        #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+        gtk_window_set_wmclass(GTK_WINDOW(m_window), "l.null", "l.null");
+        #pragma GCC diagnostic pop
+        gtk_window_set_icon_name(GTK_WINDOW(m_window), "l.null");
+    } else {
+        gtk_window_set_title(GTK_WINDOW(m_window), "lumen browser");
+        #pragma GCC diagnostic push
+        #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+        gtk_window_set_wmclass(GTK_WINDOW(m_window), "lumen-browser", "lumen-browser");
+        #pragma GCC diagnostic pop
+        gtk_window_set_icon_name(GTK_WINDOW(m_window), "lumen-browser");
+    }
+
+    // Apply browser logo as window and taskbar icon
     const char* iconCandidates[] = {
         "assets/logo.svg",
-        "../assets/logo.svg",
-        "/home/elliot/Проекты/Blueprint Browser/assets/logo.svg"
+        "../assets/logo.svg"
     };
     GList* iconList = nullptr;
     for (const char* iconPath : iconCandidates) {
@@ -61,7 +89,6 @@ bool Application::initialize(int argc, char* argv[]) {
             iconList = g_list_append(iconList, pb128);
             iconList = g_list_append(iconList, pb256);
             gtk_window_set_icon_list(GTK_WINDOW(m_window), iconList);
-            gtk_window_set_default_icon_list(iconList);
             g_list_free_full(iconList, g_object_unref);
             break;
         } else {
@@ -79,15 +106,18 @@ bool Application::initialize(int argc, char* argv[]) {
         }
     }
 
-    // Dark solid background for window and containers to prevent any alpha bleed-through or holes
+    // Dark solid background for window and containers
     GtkCssProvider* cssProvider = gtk_css_provider_new();
-    const char* appCss = 
+    std::string appCss = m_isEphemeral ?
+        "window, .background, box, stack, stack > * {\n"
+        "    background-color: #070809;\n"
+        "}\n" :
         "window, .background, box, stack, stack > * {\n"
         "    background-color: #0E1116;\n"
         "}\n";
-    gtk_css_provider_load_from_data(cssProvider, appCss, -1, nullptr);
-    gtk_style_context_add_provider_for_screen(
-        gdk_screen_get_default(),
+    gtk_css_provider_load_from_data(cssProvider, appCss.c_str(), -1, nullptr);
+    gtk_style_context_add_provider(
+        gtk_widget_get_style_context(m_window),
         GTK_STYLE_PROVIDER(cssProvider),
         GTK_STYLE_PROVIDER_PRIORITY_APPLICATION
     );
@@ -138,21 +168,25 @@ bool Application::initialize(int argc, char* argv[]) {
     g_signal_connect(m_window, "key-press-event", G_CALLBACK(onWindowKeyPress), this);
     g_signal_connect(m_window, "scroll-event", G_CALLBACK(onWindowScroll), this);
     g_signal_connect(m_window, "destroy", G_CALLBACK(+[](GtkWidget*, gpointer data) {
-        static_cast<Application*>(data)->shutdown();
+        auto* self = static_cast<BrowserWindow*>(data);
+        self->m_window = nullptr; // prevent double destroy
+        g_idle_add(+[](gpointer d) -> gboolean {
+            auto* bwin = static_cast<BrowserWindow*>(d);
+            bwin->m_app->removeWindow(bwin);
+            return G_SOURCE_REMOVE;
+        }, self);
     }), this);
 
     // Topbar callbacks
     m_topbar.getTabStrip().setCallbacks(
         [this](int oldIdx, int newIdx) { switchTab(oldIdx, newIdx); },
-        [this]()         { createTab("lumen://newtab"); },
-        [this](int idx)  { closeTab(idx); }
+        [this]()                       { createTab(); },
+        [this](int idx)                { closeTab(idx); }
     );
 
     m_topbar.getOmnibox().setOnNavigate([this](const std::string& url) {
         navigateActiveTab(url);
     });
-
-    // Blueprint::Omnibox::UnitConverter::init();
 
     m_topbar.setOnBack([this]() {
         if (validActive()) { m_tabs[m_activeIdx]->goBack(); syncTopbar(); }
@@ -176,7 +210,6 @@ bool Application::initialize(int argc, char* argv[]) {
     std::string initUa = m_topbar.getSettings().settings().getActiveUserAgent();
     Engine::WebTab::setDefaultUserAgent(initUa);
 
-    // When User-Agent changes from the settings dropdown, propagate to all tabs
     m_topbar.getSettings().setOnUserAgentChanged([this](const std::string& ua) {
         Engine::WebTab::setDefaultUserAgent(ua);
         for (auto& tab : m_tabs) {
@@ -186,52 +219,111 @@ bool Application::initialize(int argc, char* argv[]) {
         }
     });
 
-    std::string startUrl = "lumen://newtab";
-    if (argc > 1 && argv[1] && argv[1][0] != '\0') {
-        startUrl = argv[1];
+    std::string initUrl = m_startUrl;
+    if (initUrl.empty()) {
+        initUrl = m_isEphemeral ? "lumen://null" : "lumen://newtab";
     }
-    createTab(startUrl);
+    createTab(initUrl);
 
-    // VSync-synchronized frame tick for native monitor refresh rates (60/120/144/240Hz)
+    // VSync tick
     gtk_widget_add_tick_callback(m_window, +[](GtkWidget*, GdkFrameClock*, gpointer data) -> gboolean {
-        auto* app = static_cast<Application*>(data);
+        auto* win = static_cast<BrowserWindow*>(data);
         auto now = std::chrono::steady_clock::now();
         float dt = 0.016f;
-        if (app->m_hasLastUpdateTime) {
-            float realDt = std::chrono::duration_cast<std::chrono::microseconds>(now - app->m_lastUpdateTime).count() / 1000000.f;
+        if (win->m_hasLastUpdateTime) {
+            float realDt = std::chrono::duration_cast<std::chrono::microseconds>(now - win->m_lastUpdateTime).count() / 1000000.f;
             dt = std::clamp(realDt, 0.001f, 0.050f);
         } else {
-            app->m_hasLastUpdateTime = true;
+            win->m_hasLastUpdateTime = true;
         }
-        app->m_lastUpdateTime = now;
-        app->update(dt);
+        win->m_lastUpdateTime = now;
+        win->update(dt);
         return G_SOURCE_CONTINUE;
     }, this, nullptr);
 
-    // Heartbeat fallback timer to ensure animation wakeup when idle
-    g_timeout_add(16, +[](gpointer data) -> gboolean {
-        auto* app = static_cast<Application*>(data);
-        if (app->m_topbar.wantsRedraw()) {
-            gtk_widget_queue_draw(app->m_topbarArea);
-            if (app->m_topbar.isAnyOverlayActive()) {
-                gtk_widget_queue_draw(app->m_overlayArea);
+    // Heartbeat fallback timer
+    m_heartbeatTimerId = g_timeout_add(16, +[](gpointer data) -> gboolean {
+        auto* win = static_cast<BrowserWindow*>(data);
+        if (!win || !win->m_window || !GTK_IS_WIDGET(win->m_window) || !GTK_IS_WIDGET(win->m_topbarArea)) {
+            return G_SOURCE_REMOVE;
+        }
+        if (win->m_topbar.wantsRedraw()) {
+            gtk_widget_queue_draw(win->m_topbarArea);
+            if (win->m_topbar.isAnyOverlayActive() && win->m_overlayArea && GTK_IS_WIDGET(win->m_overlayArea)) {
+                gtk_widget_queue_draw(win->m_overlayArea);
             }
         }
         return G_SOURCE_CONTINUE;
     }, this);
 
-    gtk_widget_show_all(m_window);
-    gtk_widget_hide(m_overlayArea); // ensure overlay is hidden initially
+    // Register internal media bridge: allows media played in any Lumen tab to be captured and controlled in the widget
+    Engine::WebTab::setInternalMediaProvider([this]() -> std::string {
+        for (const auto& tab : m_tabs) {
+            if (tab && tab->isPlayingAudio() && tab->getUrl() != "lumen://newtab" && tab->getUrl() != "about:blank") {
+                std::string t = tab->getTitle();
+                if (t.empty()) t = "Lumen Media";
+                std::string artist = "Lumen Web";
+                size_t ytp = t.rfind(" - YouTube");
+                if (ytp != std::string::npos) {
+                    t = t.substr(0, ytp);
+                    artist = "YouTube";
+                }
+                auto escapeJson = [](const std::string& s) {
+                    std::string out;
+                    for (char c : s) {
+                        if (c == '"') out += "\\\"";
+                        else if (c == '\\') out += "\\\\";
+                        else if (c == '\n') out += "\\n";
+                        else if (c == '\r') out += "\\r";
+                        else out += c;
+                    }
+                    return out;
+                };
+                return "{\"hasPlayer\":true,\"player\":\"Lumen\",\"playbackStatus\":\"Playing\",\"title\":\"" +
+                       escapeJson(t) + "\",\"artist\":\"" + escapeJson(artist) + "\",\"album\":\"\",\"artUrl\":\"\",\"position\":0,\"duration\":0}";
+            }
+        }
+        return "";
+    });
 
-    m_running = true;
+    Engine::WebTab::setInternalMediaCommander([this](const std::string& action, double param) -> bool {
+        for (const auto& tab : m_tabs) {
+            if (tab && tab->isPlayingAudio() && tab->getUrl() != "lumen://newtab") {
+                std::string js;
+                if (action == "playPause") {
+                    js = "(() => { const v = document.querySelector('video, audio'); if (v) { if (v.paused) v.play(); else v.pause(); } })()";
+                } else if (action == "setPosition") {
+                    js = "(() => { const v = document.querySelector('video, audio'); if (v) { v.currentTime = " + std::to_string(static_cast<int>(param)) + "; } })()";
+                } else if (action == "seek") {
+                    js = "(() => { const v = document.querySelector('video, audio'); if (v) { v.currentTime += " + std::to_string(static_cast<int>(param)) + "; } })()";
+                } else if (action == "next") {
+                    js = "(() => { const v = document.querySelector('video, audio'); if (v) { v.currentTime += 10; } })()";
+                } else if (action == "prev" || action == "previous") {
+                    js = "(() => { const v = document.querySelector('video, audio'); if (v) { if (v.currentTime > 3) v.currentTime = 0; else v.currentTime -= 10; } })()";
+                }
+                if (!js.empty()) {
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+                    webkit_web_view_run_javascript(WEBKIT_WEB_VIEW(tab->getWebView()), js.c_str(), nullptr, nullptr, nullptr);
+#pragma GCC diagnostic pop
+                    return true;
+                }
+            }
+        }
+        return false;
+    });
+
+    gtk_widget_show_all(m_window);
+    gtk_widget_hide(m_overlayArea);
+
     return true;
 }
 
-bool Application::validActive() const {
+bool BrowserWindow::validActive() const {
     return m_activeIdx >= 0 && m_activeIdx < static_cast<int>(m_tabs.size());
 }
 
-void Application::syncTopbar() {
+void BrowserWindow::syncTopbar() {
     if (!validActive()) return;
     auto& tab = m_tabs[m_activeIdx];
     m_topbar.setActiveUrl(tab->getUrl());
@@ -242,17 +334,21 @@ void Application::syncTopbar() {
     m_topbar.setLoadProgress(tab->getLoadProgress());
 }
 
-void Application::createTab(const std::string& url) {
+void BrowserWindow::createTab(const std::string& url, bool switchToNewTab) {
+    std::string targetUrl = url;
+    if (targetUrl.empty()) {
+        targetUrl = m_isEphemeral ? "lumen://null" : "lumen://newtab";
+    }
+
     int newId = m_nextId++;
-    auto tab = std::make_shared<Engine::WebTab>(newId, url);
+    auto tab = std::make_shared<Engine::WebTab>(newId, targetUrl, "New Tab", m_webContext, m_isEphemeral);
     m_tabs.push_back(tab);
 
     std::string tabName = "tab_" + std::to_string(newId);
     gtk_stack_add_named(GTK_STACK(m_stack), tab->getWebView(), tabName.c_str());
-    gtk_stack_set_visible_child_name(GTK_STACK(m_stack), tabName.c_str());
     gtk_widget_show_all(tab->getWebView());
 
-    // Connect tab signal callbacks
+    // Tab signal callbacks
     tab->setCallbacks(
         [this, tab](const std::string&) {
             syncTopbar();
@@ -261,7 +357,9 @@ void Application::createTab(const std::string& url) {
         [this, tab](const std::string& u) {
             if (validActive() && m_tabs[m_activeIdx] == tab) {
                 syncTopbar();
-                Storage::Database::instance().addHistory(u, tab->getTitle());
+                if (!m_isEphemeral) {
+                    Storage::Database::instance().addHistory(u, tab->getTitle());
+                }
             }
         },
         [this, tab](float prog) {
@@ -279,8 +377,8 @@ void Application::createTab(const std::string& url) {
         }
     });
 
-    tab->setOnNewTabRequested([this](const std::string& u) {
-        createTab(u);
+    tab->setOnNewTabRequested([this](const std::string& u, bool inBackground) {
+        createTab(u, !inBackground);
     });
 
     tab->setOnFullscreenToggled([this](bool fs) {
@@ -293,11 +391,17 @@ void Application::createTab(const std::string& url) {
         }
     });
 
-    int newIdx = static_cast<int>(m_tabs.size()) - 1;
-    switchTab(m_activeIdx, newIdx);
+    if (switchToNewTab) {
+        gtk_stack_set_visible_child_name(GTK_STACK(m_stack), tabName.c_str());
+        int newIdx = static_cast<int>(m_tabs.size()) - 1;
+        switchTab(m_activeIdx, newIdx);
+    } else {
+        syncTopbar();
+        gtk_widget_queue_draw(m_topbarArea);
+    }
 }
 
-void Application::closeTab(int index) {
+void BrowserWindow::closeTab(int index) {
     if (index < 0 || index >= static_cast<int>(m_tabs.size())) return;
 
     auto tab = m_tabs[index];
@@ -305,7 +409,9 @@ void Application::closeTab(int index) {
     m_tabs.erase(m_tabs.begin() + index);
 
     if (m_tabs.empty()) {
-        createTab("lumen://newtab");
+        if (m_window) {
+            gtk_widget_destroy(m_window);
+        }
         return;
     }
 
@@ -316,7 +422,7 @@ void Application::closeTab(int index) {
     gtk_widget_queue_draw(m_topbarArea);
 }
 
-void Application::switchTab(int oldIdx, int newIdx) {
+void BrowserWindow::switchTab(int oldIdx, int newIdx) {
     if (newIdx < 0 || newIdx >= static_cast<int>(m_tabs.size())) return;
     m_activeIdx = newIdx;
 
@@ -328,9 +434,6 @@ void Application::switchTab(int oldIdx, int newIdx) {
         return;
     }
 
-    // Directional Tab Slide:
-    // If going right (newIdx > oldIdx), slide LEFT to reveal new tab from the right.
-    // If going left (newIdx < oldIdx), slide RIGHT to reveal new tab from the left.
     GtkStackTransitionType transType = (newIdx > oldIdx)
         ? GTK_STACK_TRANSITION_TYPE_SLIDE_LEFT
         : GTK_STACK_TRANSITION_TYPE_SLIDE_RIGHT;
@@ -347,39 +450,43 @@ void Application::switchTab(int oldIdx, int newIdx) {
 
     syncTopbar();
     gtk_widget_queue_draw(m_topbarArea);
+
+    if (m_tabs[newIdx]->getUrl() == "lumen://newtab") {
+        m_tabs[newIdx]->syncSystemMediaState();
+    }
 }
 
-void Application::navigateActiveTab(const std::string& url) {
+void BrowserWindow::navigateActiveTab(const std::string& url) {
     if (!validActive()) return;
     m_tabs[m_activeIdx]->loadUrl(url);
     syncTopbar();
     gtk_widget_queue_draw(m_topbarArea);
 }
 
-void Application::zoomIn() {
+void BrowserWindow::zoomIn() {
     if (validActive()) m_tabs[m_activeIdx]->zoomIn();
 }
 
-void Application::zoomOut() {
+void BrowserWindow::zoomOut() {
     if (validActive()) m_tabs[m_activeIdx]->zoomOut();
 }
 
-void Application::resetZoom() {
+void BrowserWindow::resetZoom() {
     if (validActive()) m_tabs[m_activeIdx]->resetZoom();
 }
 
-void Application::handleScrollZoom(double dy) {
+void BrowserWindow::handleScrollZoom(double dy) {
     if (validActive()) m_tabs[m_activeIdx]->handleScrollZoom(dy);
 }
 
-void Application::clearActiveSiteData() {
+void BrowserWindow::clearActiveSiteData() {
     if (!validActive()) return;
     m_tabs[m_activeIdx]->clearWebsiteData([](bool success) {
         std::cout << "[Core] Cleared website data: " << (success ? "OK" : "Failed") << "\n";
     });
 }
 
-void Application::update(float dt) {
+void BrowserWindow::update(float dt) {
     m_topbar.update(dt);
 
     bool overlayActive = m_topbar.isAnyOverlayActive();
@@ -396,24 +503,24 @@ void Application::update(float dt) {
 }
 
 // ─────────────────────────── GTK Signal Callbacks ──────────────────────────
-gboolean Application::onTopbarDraw(GtkWidget* widget, cairo_t* cr, gpointer data) {
-    auto* self = static_cast<Application*>(data);
+gboolean BrowserWindow::onTopbarDraw(GtkWidget* widget, cairo_t* cr, gpointer data) {
+    auto* self = static_cast<BrowserWindow*>(data);
     int w = gtk_widget_get_allocated_width(widget);
     int h = gtk_widget_get_allocated_height(widget);
     self->m_topbar.draw(cr, w, h);
     return FALSE;
 }
 
-gboolean Application::onTopbarMotion(GtkWidget* widget, GdkEventMotion* event, gpointer data) {
-    auto* self = static_cast<Application*>(data);
+gboolean BrowserWindow::onTopbarMotion(GtkWidget* widget, GdkEventMotion* event, gpointer data) {
+    auto* self = static_cast<BrowserWindow*>(data);
     if (self->m_topbar.handleMouseMove(event->x, event->y)) {
         gtk_widget_queue_draw(widget);
     }
     return TRUE;
 }
 
-gboolean Application::onTopbarButtonPress(GtkWidget* widget, GdkEventButton* event, gpointer data) {
-    auto* self = static_cast<Application*>(data);
+gboolean BrowserWindow::onTopbarButtonPress(GtkWidget* widget, GdkEventButton* event, gpointer data) {
+    auto* self = static_cast<BrowserWindow*>(data);
     if (event->button == 1) {
         self->m_topbar.handleMouseDown(event->x, event->y);
         gtk_widget_queue_draw(widget);
@@ -422,7 +529,6 @@ gboolean Application::onTopbarButtonPress(GtkWidget* widget, GdkEventButton* eve
         }
         return TRUE;
     } else if (event->button == 2) {
-        // Middle-click tab close
         self->m_topbar.getTabStrip().handleMouseDown(event->x, event->y, 2);
         self->m_topbar.getOmnibox().setFocused(false);
         gtk_widget_queue_draw(widget);
@@ -434,8 +540,8 @@ gboolean Application::onTopbarButtonPress(GtkWidget* widget, GdkEventButton* eve
     return FALSE;
 }
 
-gboolean Application::onTopbarButtonRelease(GtkWidget* widget, GdkEventButton* event, gpointer data) {
-    auto* self = static_cast<Application*>(data);
+gboolean BrowserWindow::onTopbarButtonRelease(GtkWidget* widget, GdkEventButton* event, gpointer data) {
+    auto* self = static_cast<BrowserWindow*>(data);
     if (event->button == 1) {
         if (self->m_topbar.handleMouseUp(event->x, event->y)) {
             gtk_widget_queue_draw(widget);
@@ -448,8 +554,8 @@ gboolean Application::onTopbarButtonRelease(GtkWidget* widget, GdkEventButton* e
     return FALSE;
 }
 
-gboolean Application::onTopbarScroll(GtkWidget* widget, GdkEventScroll* event, gpointer data) {
-    auto* self = static_cast<Application*>(data);
+gboolean BrowserWindow::onTopbarScroll(GtkWidget* widget, GdkEventScroll* event, gpointer data) {
+    auto* self = static_cast<BrowserWindow*>(data);
     double dx = 0.0;
     if (event->direction == GDK_SCROLL_UP)   dx = -1.0;
     else if (event->direction == GDK_SCROLL_DOWN) dx = 1.0;
@@ -462,16 +568,16 @@ gboolean Application::onTopbarScroll(GtkWidget* widget, GdkEventScroll* event, g
     return FALSE;
 }
 
-gboolean Application::onOverlayDraw(GtkWidget* widget, cairo_t* cr, gpointer data) {
-    auto* self = static_cast<Application*>(data);
+gboolean BrowserWindow::onOverlayDraw(GtkWidget* widget, cairo_t* cr, gpointer data) {
+    auto* self = static_cast<BrowserWindow*>(data);
     int w = gtk_widget_get_allocated_width(widget);
     int h = gtk_widget_get_allocated_height(widget);
     self->m_topbar.drawOverlays(cr, w, h);
     return FALSE;
 }
 
-gboolean Application::onOverlayMotion(GtkWidget* widget, GdkEventMotion* event, gpointer data) {
-    auto* self = static_cast<Application*>(data);
+gboolean BrowserWindow::onOverlayMotion(GtkWidget* widget, GdkEventMotion* event, gpointer data) {
+    auto* self = static_cast<BrowserWindow*>(data);
     bool changed = self->m_topbar.handleMouseMove(event->x, event->y);
     if (changed) {
         gtk_widget_queue_draw(widget);
@@ -480,15 +586,14 @@ gboolean Application::onOverlayMotion(GtkWidget* widget, GdkEventMotion* event, 
     return TRUE;
 }
 
-gboolean Application::onOverlayButtonPress(GtkWidget* widget, GdkEventButton* event, gpointer data) {
-    auto* self = static_cast<Application*>(data);
+gboolean BrowserWindow::onOverlayButtonPress(GtkWidget* widget, GdkEventButton* event, gpointer data) {
+    auto* self = static_cast<BrowserWindow*>(data);
     if (event->button == 1) {
         self->m_topbar.handleMouseDown(event->x, event->y);
         gtk_widget_queue_draw(widget);
         gtk_widget_queue_draw(self->m_topbarArea);
         return TRUE;
     } else if (event->button == 2) {
-        // Middle-click tab close when overlay/omnibox is active
         self->m_topbar.getTabStrip().handleMouseDown(event->x, event->y, 2);
         self->m_topbar.getOmnibox().setFocused(false);
         gtk_widget_queue_draw(widget);
@@ -498,8 +603,8 @@ gboolean Application::onOverlayButtonPress(GtkWidget* widget, GdkEventButton* ev
     return FALSE;
 }
 
-gboolean Application::onOverlayButtonRelease(GtkWidget* widget, GdkEventButton* event, gpointer data) {
-    auto* self = static_cast<Application*>(data);
+gboolean BrowserWindow::onOverlayButtonRelease(GtkWidget* widget, GdkEventButton* event, gpointer data) {
+    auto* self = static_cast<BrowserWindow*>(data);
     if (event->button == 1) {
         if (self->m_topbar.handleMouseUp(event->x, event->y)) {
             gtk_widget_queue_draw(widget);
@@ -510,8 +615,8 @@ gboolean Application::onOverlayButtonRelease(GtkWidget* widget, GdkEventButton* 
     return FALSE;
 }
 
-gboolean Application::onOverlayScroll(GtkWidget* widget, GdkEventScroll* event, gpointer data) {
-    auto* self = static_cast<Application*>(data);
+gboolean BrowserWindow::onOverlayScroll(GtkWidget* widget, GdkEventScroll* event, gpointer data) {
+    auto* self = static_cast<BrowserWindow*>(data);
     double dy = 0.0;
     if (event->direction == GDK_SCROLL_UP)   dy = -1.0;
     else if (event->direction == GDK_SCROLL_DOWN) dy = 1.0;
@@ -524,15 +629,14 @@ gboolean Application::onOverlayScroll(GtkWidget* widget, GdkEventScroll* event, 
     return FALSE;
 }
 
-gboolean Application::onWindowKeyPress(GtkWidget*, GdkEventKey* event, gpointer data) {
-    auto* self = static_cast<Application*>(data);
+gboolean BrowserWindow::onWindowKeyPress(GtkWidget*, GdkEventKey* event, gpointer data) {
+    auto* self = static_cast<BrowserWindow*>(data);
     bool ctrl = (event->state & GDK_CONTROL_MASK) != 0;
     bool shift = (event->state & GDK_SHIFT_MASK) != 0;
 
     // determine normalized latin key for shortcuts regardless of layout
     guint latinKeyval = event->keyval;
     if (ctrl) {
-        // hardware keycode direct fallback for standard pc keyboards
         if (event->hardware_keycode == 38) latinKeyval = GDK_KEY_a;
         else if (event->hardware_keycode == 54) latinKeyval = GDK_KEY_c;
         else if (event->hardware_keycode == 55) latinKeyval = GDK_KEY_v;
@@ -563,6 +667,12 @@ gboolean Application::onWindowKeyPress(GtkWidget*, GdkEventKey* event, gpointer 
         }
     }
 
+    // ──────────────── Ctrl + Shift + N: Open Ephemeral l.null Window ──────────
+    if (ctrl && shift && (latinKeyval == GDK_KEY_n || latinKeyval == GDK_KEY_N || event->hardware_keycode == 57)) {
+        self->m_app->createWindow(/*isEphemeral=*/true, "lumen://null");
+        return TRUE;
+    }
+
     uint32_t effectiveState = event->state | (ctrl ? 4 : 0);
     guint keyToSend = ctrl ? latinKeyval : event->keyval;
 
@@ -570,16 +680,18 @@ gboolean Application::onWindowKeyPress(GtkWidget*, GdkEventKey* event, gpointer 
     if (self->m_topbar.getSettings().isVisible()) {
         self->m_topbar.getSettings().handleKeyPress(keyToSend, effectiveState, event->string);
         gtk_widget_queue_draw(self->m_overlayArea);
-        return TRUE; // absorb all events while settings modal is open
+        return TRUE;
     }
 
     // 2. Escape exits video fullscreen if active
     if (event->keyval == GDK_KEY_Escape) {
-        GdkWindow* gdkWin = gtk_widget_get_window(self->m_window);
-        if (gdkWin && (gdk_window_get_state(gdkWin) & GDK_WINDOW_STATE_FULLSCREEN)) {
-            gtk_window_unfullscreen(GTK_WINDOW(self->m_window));
-            gtk_widget_show(self->m_topbarArea);
-            return TRUE;
+        if (self->m_window) {
+            GdkWindow* gdkWin = gtk_widget_get_window(self->m_window);
+            if (gdkWin && (gdk_window_get_state(gdkWin) & GDK_WINDOW_STATE_FULLSCREEN)) {
+                gtk_window_unfullscreen(GTK_WINDOW(self->m_window));
+                gtk_widget_show(self->m_topbarArea);
+                return TRUE;
+            }
         }
     }
 
@@ -591,7 +703,7 @@ gboolean Application::onWindowKeyPress(GtkWidget*, GdkEventKey* event, gpointer 
         return TRUE;
     }
 
-    // 3. omnibox handling when focused (gets precedence for all editing and text shortcuts)
+    // 4. omnibox handling when focused
     if (self->m_topbar.getOmnibox().isFocused()) {
         if (self->m_topbar.handleKeyPress(keyToSend, effectiveState, event->string)) {
             gtk_widget_queue_draw(self->m_topbarArea);
@@ -602,13 +714,13 @@ gboolean Application::onWindowKeyPress(GtkWidget*, GdkEventKey* event, gpointer 
         }
     }
 
-    // 4. browser global shortcuts
+    // 5. browser global shortcuts
     if (ctrl) {
         guint k = latinKeyval;
         // new tab shortcut
         if (k == GDK_KEY_n || k == GDK_KEY_N ||
             k == GDK_KEY_t || k == GDK_KEY_T) {
-            self->createTab("lumen://newtab");
+            self->createTab();
             return TRUE;
         }
         // close active tab
@@ -654,7 +766,7 @@ gboolean Application::onWindowKeyPress(GtkWidget*, GdkEventKey* event, gpointer 
         return TRUE;
     }
 
-    // reload: F5 or Ctrl + R (respects canReload, blocked on internal pages)
+    // reload: F5 or Ctrl + R
     if (event->keyval == GDK_KEY_F5 || ((latinKeyval == GDK_KEY_r || latinKeyval == GDK_KEY_R) && ctrl)) {
         if (self->validActive()) {
             auto tab = self->m_tabs[self->m_activeIdx];
@@ -665,7 +777,7 @@ gboolean Application::onWindowKeyPress(GtkWidget*, GdkEventKey* event, gpointer 
         return TRUE;
     }
 
-    // Shift + T: close current active tab (only when omnibox is not focused)
+    // Shift + T: close current active tab
     if (!self->m_topbar.getOmnibox().isFocused() && shift && !ctrl &&
         (event->keyval == GDK_KEY_T || event->keyval == GDK_KEY_t)) {
         self->closeTab(self->m_activeIdx);
@@ -675,8 +787,8 @@ gboolean Application::onWindowKeyPress(GtkWidget*, GdkEventKey* event, gpointer 
     return FALSE;
 }
 
-gboolean Application::onWindowScroll(GtkWidget*, GdkEventScroll* event, gpointer data) {
-    auto* self = static_cast<Application*>(data);
+gboolean BrowserWindow::onWindowScroll(GtkWidget*, GdkEventScroll* event, gpointer data) {
+    auto* self = static_cast<BrowserWindow*>(data);
     if (event->state & GDK_CONTROL_MASK) {
         double dy = 0.0;
         if (event->direction == GDK_SCROLL_UP)   dy = 1.0;
@@ -687,7 +799,6 @@ gboolean Application::onWindowScroll(GtkWidget*, GdkEventScroll* event, gpointer
         return TRUE;
     }
 
-    // If settings overlay is open, forward mouse wheel scroll to settings panel
     if (self->m_topbar.getSettings().isVisible()) {
         double dy = 0.0;
         if (event->direction == GDK_SCROLL_UP)   dy = -1.0;
@@ -702,6 +813,64 @@ gboolean Application::onWindowScroll(GtkWidget*, GdkEventScroll* event, gpointer
     return FALSE;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Application Implementation
+// ─────────────────────────────────────────────────────────────────────────────
+
+Application::Application() {}
+Application::~Application() { shutdown(); }
+
+bool Application::initialize(int argc, char* argv[]) {
+    // Stability flags for GPU / Wayland
+    setenv("__NV_DISABLE_EXPLICIT_SYNC", "1", 1);
+    unsetenv("WEBKIT_DISABLE_DMABUF_RENDERER");
+
+    curl_global_init(CURL_GLOBAL_ALL);
+
+    if (!gtk_init_check(&argc, &argv)) {
+        std::cerr << "[Core] GTK initialization failed\n";
+        return false;
+    }
+
+    Storage::Database::instance().initialize();
+
+    g_set_prgname("lumen-browser");
+    g_set_application_name("lumen browser");
+
+    std::string startUrl = "lumen://newtab";
+    if (argc > 1 && argv[1] && argv[1][0] != '\0') {
+        startUrl = argv[1];
+    }
+
+    // Create the primary browser window
+    createWindow(/*isEphemeral=*/false, startUrl);
+
+    m_running = true;
+    return true;
+}
+
+BrowserWindow* Application::createWindow(bool isEphemeral, const std::string& startUrl) {
+    auto win = std::make_unique<BrowserWindow>(this, isEphemeral, startUrl);
+    if (!win->initialize()) {
+        return nullptr;
+    }
+    auto* rawPtr = win.get();
+    m_windows.push_back(std::move(win));
+    return rawPtr;
+}
+
+void Application::removeWindow(BrowserWindow* win) {
+    auto it = std::find_if(m_windows.begin(), m_windows.end(), [win](const auto& ptr) {
+        return ptr.get() == win;
+    });
+    if (it != m_windows.end()) {
+        m_windows.erase(it);
+    }
+    if (m_windows.empty()) {
+        shutdown();
+    }
+}
+
 void Application::run() {
     gtk_main();
 }
@@ -709,6 +878,7 @@ void Application::run() {
 void Application::shutdown() {
     if (m_running) {
         m_running = false;
+        m_windows.clear();
         curl_global_cleanup();
         gtk_main_quit();
     }

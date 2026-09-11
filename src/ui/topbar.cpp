@@ -311,10 +311,16 @@ void CompactTopbar::drawLockIcon(cairo_t* cr, double x, double y) {
         cairo_fill(cr);
     }
 
-    bool isInternal = (m_currentUrl.empty() || m_currentUrl == "lumen://newtab" || m_currentUrl == "lampa://newtab" || m_currentUrl == "blueprint://newtab" || m_currentUrl == "about:blank");
+    bool isInternal = (m_currentUrl.empty() || m_currentUrl == "lumen://newtab" ||
+                       m_currentUrl == "lumen://null" || m_currentUrl == "lumen://null-tab" ||
+                       m_currentUrl == "lumen://error" ||
+                       m_currentUrl == "lampa://newtab" || m_currentUrl == "blueprint://newtab" ||
+                       m_currentUrl == "about:blank");
 
     Theme::Color lockCol;
-    if (isInternal) {
+    if (m_isEphemeral || m_currentUrl == "lumen://null" || m_currentUrl == "lumen://null-tab") {
+        lockCol = Theme::Color::fromHex(0x3B5C54); // subdued phosphor cyan
+    } else if (isInternal) {
         lockCol = Theme::TEXT_MUTED;
     } else if (m_tlsInfo.isHttps && m_tlsInfo.isValid) {
         lockCol = Theme::Color{0.12f, 0.78f, 0.45f, 1.0f}; // emerald green
@@ -439,12 +445,18 @@ void CompactTopbar::drawCertBanner(cairo_t* cr, double winW, double winH) {
 
     // 1. security status header row
     double iconCX = banX + 26, iconCY = banY + 24;
-    bool isInternal = (m_currentUrl.empty() || m_currentUrl == "lumen://newtab" || m_currentUrl == "lampa://newtab" || m_currentUrl == "blueprint://newtab" || m_currentUrl == "about:blank");
+    bool isInternal = (m_currentUrl.empty() || m_currentUrl == "lumen://newtab" ||
+                       m_currentUrl == "lumen://null" || m_currentUrl == "lumen://null-tab" ||
+                       m_currentUrl == "lumen://error" ||
+                       m_currentUrl == "lampa://newtab" || m_currentUrl == "blueprint://newtab" ||
+                       m_currentUrl == "about:blank");
     bool isSecure = m_tlsInfo.isHttps && m_tlsInfo.isValid && !isInternal;
+    bool isNullPage = (m_isEphemeral || m_currentUrl == "lumen://null" || m_currentUrl == "lumen://null-tab");
 
-    Theme::Color statusCol = isInternal ? Theme::TEXT_MUTED
+    Theme::Color statusCol = isNullPage ? Theme::Color::fromHex(0x3B5C54)
+                             : (isInternal ? Theme::TEXT_MUTED
                              : (isSecure ? Theme::Color{0.12f, 0.78f, 0.45f, 1.0f}
-                             : Theme::Color{0.92f, 0.25f, 0.25f, 1.0f});
+                             : Theme::Color{0.92f, 0.25f, 0.25f, 1.0f}));
 
     // lock icon badge
     cairo_arc(cr, iconCX, iconCY - 3, 4.0, M_PI, 2 * M_PI);
@@ -453,23 +465,28 @@ void CompactTopbar::drawCertBanner(cairo_t* cr, double winW, double winH) {
     sc(cr, statusCol); cairo_fill(cr);
 
     // header title
-    const char* titleText = isInternal ? "Internal Page"
+    const char* titleText = isNullPage ? "[∅] L.NULL // RAM ONLY"
+                          : (isInternal ? "Internal Page"
                           : (isSecure ? "Connection is secure"
-                          : "Connection not secure");
+                          : "Connection not secure"));
     PangoLayout* lTitle = makeLayout(cr, "Inter Bold 11");
     showText(cr, lTitle, titleText, banX + 46, banY + 16, Theme::TEXT_MAIN);
 
     // 2. certificate status text and issuer pill
     PangoLayout* lSub = makeLayout(cr, "Inter 9");
-    const char* subText = isInternal ? "Browser internal resource:"
+    const char* subText = isNullPage ? "Volatile Ephemeral Session:"
+                        : (isInternal ? "Browser internal resource:"
                         : (isSecure ? "Certificate verified:"
-                        : "Security status:");
+                        : "Security status:"));
     showText(cr, lSub, subText, banX + 46, banY + 44, Theme::TEXT_MUTED);
 
     // badge pill
     std::string pillLabel;
     Theme::Color pillTextColor;
-    if (isInternal) {
+    if (isNullPage) {
+        pillLabel = "CACHE: PURGED · COOKIES: ISOLATED";
+        pillTextColor = Theme::Color::fromHex(0x3B5C54);
+    } else if (isInternal) {
         pillLabel = "Local page";
         pillTextColor = Theme::TEXT_MUTED;
     } else if (isSecure) {

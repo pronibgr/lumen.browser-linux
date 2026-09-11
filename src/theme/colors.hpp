@@ -2,6 +2,7 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+#include <functional>
 
 namespace Blueprint::Theme {
 
@@ -20,6 +21,9 @@ struct Color {
     bool operator==(const Color& o) const {
         return r == o.r && g == o.g && b == o.b && a == o.a;
     }
+
+    std::string toCssRgba() const;
+    std::string toCssHex() const;
 };
 
 enum class ThemeId {
@@ -93,6 +97,10 @@ public:
     void setTheme(ThemeId id, bool animated = true);
     void setThemeByName(const std::string& name, bool animated = true);
 
+    using ThemeCallback = std::function<void(const Palette&)>;
+    int addThemeListener(ThemeCallback cb);
+    void removeThemeListener(int id);
+
     static bool isNightTime();
     static bool isNightTimeForHour(int hour) {
         return (hour >= 20 || hour < 8);
@@ -107,6 +115,7 @@ private:
     ThemeManager();
     void applyPaletteDirect(const Palette& p);
     void captureCurrentColors(Palette& p) const;
+    void notifyListeners(const Palette& p);
 
     std::vector<Palette> m_palettes;
     ThemeId m_currentTheme = ThemeId::NOCTILUCA;
@@ -117,6 +126,9 @@ private:
     Palette m_animFrom;
     Palette m_animTo;
     bool m_initialized = false;
+
+    std::vector<std::pair<int, ThemeCallback>> m_listeners;
+    int m_nextListenerId = 1;
 };
 
 // ── Geometry ──────────────────────────────────────────────────────────────────

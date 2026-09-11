@@ -24,6 +24,8 @@ public:
     void setOnNavigate(std::function<void(const std::string&)> cb) { m_onNavigate = cb; }
     void setSearchTemplate(const std::string& tmpl) { m_searchTemplate = tmpl; }
     const std::string& getSearchTemplate() const { return m_searchTemplate; }
+    void setEphemeral(bool ephem) { m_isEphemeral = ephem; }
+    bool isEphemeral() const { return m_isEphemeral; }
 
     void draw        (cairo_t* cr, double x, double y, double w, double h);
     void drawPopup   (cairo_t* cr, double x, double y, double w);
@@ -49,6 +51,7 @@ public:
     double getLastH() const { return m_lastH; }
 
 private:
+    bool m_isEphemeral = false;
     std::string m_displayUrl;      // shown when unfocused (current page URL)
     std::string m_text;            // editable text when focused
     int m_cursorPos = 0;

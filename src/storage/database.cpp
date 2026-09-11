@@ -98,7 +98,8 @@ void Database::close() {
 
 bool Database::addHistory(const std::string& url, const std::string& title) {
     if (!m_db || url.empty()) return false;
-    if (url == "lumen://newtab" || url == "lampa://newtab" || url == "blueprint://newtab" || url == "about:blank") return false;
+    if (url == "lumen://newtab" || url == "lampa://newtab" || url == "blueprint://newtab" ||
+        url == "lumen://null" || url == "lumen://null-tab" || url == "lumen://error" || url == "about:blank") return false;
 
     auto now = std::chrono::duration_cast<std::chrono::seconds>(
         std::chrono::system_clock::now().time_since_epoch()).count();

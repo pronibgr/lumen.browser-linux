@@ -128,10 +128,13 @@ void OmniboxWidget::updateSuggestions() {
     m_suggestions.clear();
     m_selectedSuggestion = -1;
 
-    if (m_text.empty() || m_text == "lumen://newtab" || m_text == "lampa://newtab" || m_text == "blueprint://newtab") {
-        auto recent = Storage::Database::instance().getRecentHistory(6);
-        for (const auto& h : recent)
-            m_suggestions.push_back({h.title, h.url, "history", 0});
+    if (m_text.empty() || m_text == "lumen://newtab" || m_text == "lumen://null" ||
+        m_text == "lumen://null-tab" || m_text == "lumen://error" || m_text == "lampa://newtab" || m_text == "blueprint://newtab") {
+        if (!m_isEphemeral) {
+            auto recent = Storage::Database::instance().getRecentHistory(6);
+            for (const auto& h : recent)
+                m_suggestions.push_back({h.title, h.url, "history", 0});
+        }
         return;
     }
 
@@ -150,10 +153,12 @@ void OmniboxWidget::updateSuggestions() {
         m_suggestions.push_back(item);
     }
 
-    // local history lookup
-    auto hist = Storage::Database::instance().searchHistory(m_text, 5);
-    for (const auto& h : hist)
-        m_suggestions.push_back(h);
+    // local history lookup (suppressed in ephemeral / l.null sessions)
+    if (!m_isEphemeral) {
+        auto hist = Storage::Database::instance().searchHistory(m_text, 5);
+        for (const auto& h : hist)
+            m_suggestions.push_back(h);
+    }
 
     // url or search fallback
     bool looksUrl = (m_text.find('.') != std::string::npos && m_text.find(' ') == std::string::npos)

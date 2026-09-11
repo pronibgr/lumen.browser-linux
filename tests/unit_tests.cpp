@@ -10,6 +10,9 @@
 #include "ui/settings_panel.hpp"
 #include "ui/topbar.hpp"
 #include "storage/database.hpp"
+#include "engine/new_tab_html.hpp"
+#include "engine/null_tab_html.hpp"
+#include "engine/error_page_html.hpp"
 #include <SDL2/SDL_keycode.h>
 #include <glib.h>
 
@@ -809,6 +812,376 @@ void testUserAgentPresetsAndCompatibility() {
     std::cout << "  -> User-Agent Presets & Compatibility tests PASSED!\n";
 }
 
+void testEphemeralSanitizerAndNullProtection() {
+    std::cout << "[Test] Running Ephemeral Tracking Sanitizer & Null Protection tests...\n";
+
+    // 1. Tracking parameter sanitization
+    std::string testUrl1 = "https://duckduckgo.com/?q=linux&utm_source=twitter&utm_medium=cpc&fbclid=123#top";
+    std::string clean1 = Blueprint::Engine::WebTab::sanitizeTrackingParams(testUrl1);
+    assert(clean1 == "https://duckduckgo.com/?q=linux#top");
+
+    std::string testUrl2 = "https://example.com/search?gclid=abc&utm_campaign=winter&key=val";
+    std::string clean2 = Blueprint::Engine::WebTab::sanitizeTrackingParams(testUrl2);
+    assert(clean2 == "https://example.com/search?key=val");
+
+    std::string testUrl3 = "https://example.com/path/without/params";
+    std::string clean3 = Blueprint::Engine::WebTab::sanitizeTrackingParams(testUrl3);
+    assert(clean3 == "https://example.com/path/without/params");
+
+    std::string testUrl4 = "https://example.com/test?utm_content=promo&mc_eid=987";
+    std::string clean4 = Blueprint::Engine::WebTab::sanitizeTrackingParams(testUrl4);
+    assert(clean4 == "https://example.com/test");
+
+    // 2. Database history protection for internal & null surfaces
+    assert(!Blueprint::Storage::Database::instance().addHistory("lumen://null", "l.null"));
+    assert(!Blueprint::Storage::Database::instance().addHistory("lumen://null-tab", "l.null"));
+    assert(!Blueprint::Storage::Database::instance().addHistory("lumen://newtab", "New Tab"));
+
+    // 3. Verify HTML template invariants
+    std::string nullHtml = Blueprint::Engine::NULL_TAB_HTML;
+    assert(nullHtml.find("L.NULL // IN-MEMORY SESSION") != std::string::npos);
+    assert(nullHtml.find("All ephemeral state registers will be zero-filled on window termination.") != std::string::npos);
+    assert(nullHtml.find("transform: translateY(-48px)") != std::string::npos);
+    assert(nullHtml.find("Search anonymously or execute URI...") != std::string::npos);
+
+    std::string newtabHtml = Blueprint::Engine::NEW_TAB_HTML;
+    assert(newtabHtml.find("zone-top-left") != std::string::npos);
+    assert(newtabHtml.find("zone-top-center") != std::string::npos);
+    assert(newtabHtml.find("zone-top-right") != std::string::npos);
+    assert(newtabHtml.find("zone-bottom-left") != std::string::npos);
+    assert(newtabHtml.find("zone-bottom-center") != std::string::npos);
+    assert(newtabHtml.find("zone-bottom-right") != std::string::npos);
+    assert(newtabHtml.find("transform: scale(0.92)") != std::string::npos);
+    assert(newtabHtml.find("Widgets Catalog") != std::string::npos);
+    assert(newtabHtml.find("Minimalist Clock") != std::string::npos);
+    assert(newtabHtml.find("Live Weather Monitor") != std::string::npos);
+    assert(newtabHtml.find("Custom HTML Embed") != std::string::npos);
+    assert(newtabHtml.find("transform-handle") != std::string::npos);
+    assert(newtabHtml.find("modal-dialog") != std::string::npos);
+
+    std::cout << "  -> Ephemeral Sanitizer & Null Protection tests PASSED!\n";
+}
+
+void testThemeReactivityAndCustomDropdowns() {
+    std::cout << "[Test] Running Theme Reactivity & Custom Dropdowns tests...\n";
+
+    // 1. Color CSS serialization
+    Blueprint::Theme::Color redCol{1.0f, 0.0f, 0.0f, 1.0f};
+    assert(redCol.toCssHex() == "#FF0000");
+    assert(redCol.toCssRgba() == "#FF0000");
+    (void)redCol;
+
+    Blueprint::Theme::Color semiGreen{0.0f, 1.0f, 0.0f, 0.5f};
+    assert(semiGreen.toCssHex() == "#00FF00");
+    assert(semiGreen.toCssRgba().find("rgba(0, 255, 0, 0.500)") != std::string::npos);
+    (void)semiGreen;
+
+    // 2. ThemeManager listener notification
+    auto& tm = Blueprint::Theme::ThemeManager::instance();
+    bool listenerCalled = false;
+    std::string receivedThemeName;
+
+    int listenerId = tm.addThemeListener([&](const Blueprint::Theme::Palette& pal) {
+        listenerCalled = true;
+        receivedThemeName = pal.name;
+    });
+    assert(listenerId > 0);
+
+    tm.setTheme(Blueprint::Theme::ThemeId::CALCITE, false);
+    assert(listenerCalled);
+    assert(receivedThemeName == "calcite");
+
+    // Test listener removal
+    listenerCalled = false;
+    tm.removeThemeListener(listenerId);
+    tm.setTheme(Blueprint::Theme::ThemeId::NOCTILUCA, false);
+    assert(!listenerCalled);
+
+    // 3. Dynamic newtab HTML generation with palette
+    const auto& calcitePal = tm.getPalette(Blueprint::Theme::ThemeId::CALCITE);
+    std::string dynamicHtml = Blueprint::Engine::getNewTabHtml(calcitePal);
+    assert(dynamicHtml.find(calcitePal.bgBase.toCssRgba()) != std::string::npos);
+    assert(dynamicHtml.find(calcitePal.bgSurface.toCssRgba()) != std::string::npos);
+    assert(dynamicHtml.find(calcitePal.accent.toCssRgba()) != std::string::npos);
+
+    // 4. Custom dropdown components & settings modal structure
+    assert(dynamicHtml.find("custom-dropdown") != std::string::npos);
+    assert(dynamicHtml.find("custom-dropdown-trigger") != std::string::npos);
+    assert(dynamicHtml.find("custom-dropdown-chevron") != std::string::npos);
+    assert(dynamicHtml.find("custom-dropdown-menu") != std::string::npos);
+    assert(dynamicHtml.find("custom-dropdown-item") != std::string::npos);
+    assert(dynamicHtml.find("modal-dialog") != std::string::npos);
+    assert(dynamicHtml.find("modal-sidebar") != std::string::npos);
+    assert(dynamicHtml.find("modal-sidebar-tab") != std::string::npos);
+    assert(dynamicHtml.find("tab-accent-indicator") != std::string::npos);
+    assert(dynamicHtml.find("btn-settings") != std::string::npos);
+    assert(dynamicHtml.find("btn-save") != std::string::npos);
+    assert(dynamicHtml.find("btn-cancel") != std::string::npos);
+
+    // 5. Modal zoom-in animation matching settings panel (0.88 scale, 260ms cubic-bezier)
+    assert(dynamicHtml.find("transform: scale(0.88);") != std::string::npos);
+    assert(dynamicHtml.find("260ms cubic-bezier(0.16, 1, 0.3, 1)") != std::string::npos);
+
+    // 6. Mirrored KDE Plasma layout and desktop wrapper
+    assert(dynamicHtml.find("id=\"desktop-wrapper\"") != std::string::npos);
+    assert(dynamicHtml.find("id=\"desktop-edit-bar\"") != std::string::npos);
+    assert(dynamicHtml.find("calc(100vw - 360px)") != std::string::npos);
+    assert(dynamicHtml.find("width: 360px;") != std::string::npos);
+    assert(dynamicHtml.find("Exit Edit Mode") != std::string::npos);
+    assert(dynamicHtml.find("Widgets") != std::string::npos);
+    assert(dynamicHtml.find("startWidgetFreeformDrag") != std::string::npos);
+    assert(dynamicHtml.find("zone-full") != std::string::npos);
+    assert(dynamicHtml.find("drag-error") != std::string::npos);
+
+    std::cout << "  -> Theme Reactivity & Custom Dropdowns tests PASSED!\n";
+}
+
+void testErrorPageAndFilamentMeltdown() {
+    std::cout << "[Test] Running Error Page (lumen://error) & Filament Meltdown tests...\n";
+
+    const auto& pal = Blueprint::Theme::ThemeManager::instance().activePalette();
+    std::string html = Blueprint::Engine::getErrorPageHtml(
+        pal,
+        "https://example.com/network-failure",
+        "NET::ERR_CONNECTION_RESET",
+        "Connection Reset",
+        "The connection to the server was unexpectedly closed or reset while transferring data.",
+        "SOUP_TRANSPORT_ERROR / 0x80004005"
+    );
+
+    // 1. DOM Hierarchy and Layout Specification checks
+    // Split composition: flex layout, gap 64px, min-height 100vh
+    assert(html.find("display: flex;") != std::string::npos);
+    assert(html.find("gap: 64px;") != std::string::npos);
+    assert(html.find("min-height: 100vh;") != std::string::npos);
+
+    // Circular portal: 320x320, border-radius 50%, overflow hidden
+    assert(html.find(".portal-frame {") != std::string::npos);
+    assert(html.find("width: 320px;") != std::string::npos);
+    assert(html.find("height: 320px;") != std::string::npos);
+    assert(html.find("border-radius: 50%;") != std::string::npos);
+    assert(html.find("overflow: hidden;") != std::string::npos);
+
+    // Canvas element: internal resolution 720x960, visually aligned inside circle via transform
+    assert(html.find("<canvas id=\"view\" width=\"720\" height=\"960\"></canvas>") != std::string::npos);
+    assert(html.find("transform: translate(-50%, calc(-50% + 10px));") != std::string::npos);
+
+    // Error details column: max width 440px
+    assert(html.find(".details-column {") != std::string::npos);
+    assert(html.find("max-width: 440px;") != std::string::npos);
+
+    // Semantic diagnostic elements
+    assert(html.find("status-badge") != std::string::npos);
+    assert(html.find("NET::ERR_CONNECTION_RESET") != std::string::npos);
+    assert(html.find("summary-title") != std::string::npos);
+    assert(html.find("Connection Reset") != std::string::npos);
+    assert(html.find("descriptive-copy") != std::string::npos);
+    assert(html.find("diag-panel") != std::string::npos);
+    assert(html.find("https://example.com/network-failure") != std::string::npos);
+    assert(html.find("SOUP_TRANSPORT_ERROR / 0x80004005") != std::string::npos);
+    assert(html.find("id=\"retry-btn\"") != std::string::npos);
+
+    // 2. Theme Variable Binding checks
+    assert(html.find("var(--bg-base)") != std::string::npos);
+    assert(html.find("radial-gradient(circle at center, var(--bg-surface) 0%, var(--bg-base) 100%)") != std::string::npos);
+    assert(html.find("var(--border)") != std::string::npos);
+    assert(html.find("var(--danger)") != std::string::npos);
+    assert(html.find("var(--fg-primary)") != std::string::npos);
+    assert(html.find("var(--fg-muted)") != std::string::npos);
+    assert(html.find("var(--fg-dim)") != std::string::npos);
+
+    // 3. Filament Meltdown Physics & Canvas Implementation
+    assert(html.find("const CX = 360;") != std::string::npos);
+    assert(html.find("const FILAMENT_Y = 380;") != std::string::npos);
+    assert(html.find("const PIN_LEFT_X = 280;") != std::string::npos);
+    assert(html.find("const PIN_RIGHT_X = 440;") != std::string::npos);
+    assert(html.find("const STEM_BOTTOM_Y = 620;") != std::string::npos);
+    assert(html.find("const SEGMENTS = 40;") != std::string::npos);
+    assert(html.find("const BREAK_INDEX = Math.floor(SEGMENTS * 0.46);") != std::string::npos);
+    assert(html.find("function initFilament()") != std::string::npos);
+    assert(html.find("function stepPhysics(dt)") != std::string::npos);
+    assert(html.find("function getFilamentColor(temp)") != std::string::npos);
+    assert(html.find("function drawRoundedRect(x, y, w, h, r)") != std::string::npos);
+    assert(html.find("function update(dt)") != std::string::npos);
+    assert(html.find("function render()") != std::string::npos);
+
+    // 4. Behavioral Constraints:
+    // No animation loops on click: ensure no click listeners on canvas or circular container
+    assert(html.find("canvas.addEventListener('click'") == std::string::npos);
+    assert(html.find("canvas.addEventListener(\"click\"") == std::string::npos);
+    assert(html.find("portal.addEventListener('click'") == std::string::npos);
+    assert(html.find("portal.addEventListener(\"click\"") == std::string::npos);
+
+    // Retry actions: primary button and keyboard space/enter
+    assert(html.find("retryBtn.addEventListener('click'") != std::string::npos);
+    assert(html.find("e.code === 'Space' || e.code === 'Enter'") != std::string::npos);
+    assert(html.find("tag === 'INPUT' || tag === 'TEXTAREA'") != std::string::npos);
+
+    // Dynamic theme reactivity injection function
+    assert(html.find("window.__setLumenTheme") != std::string::npos);
+
+    // 5. HTML escaping validation (XSS prevention)
+    std::string malicious = Blueprint::Engine::getErrorPageHtml(
+        pal,
+        "<script>alert('xss')</script>",
+        "NET::ERR_<BAD>",
+        "Title & \"Quotes\"",
+        "Desc <script>",
+        "Diag & Code"
+    );
+    assert(malicious.find("<script>alert") == std::string::npos);
+    assert(malicious.find("&lt;script&gt;alert") != std::string::npos);
+    assert(malicious.find("&quot;Quotes&quot;") != std::string::npos);
+
+    std::cout << "  -> Error Page (lumen://error) & Filament Meltdown tests PASSED!\n";
+}
+
+void testHttpErrorHandlingAndWidgetFreeform() {
+    std::cout << "[Test] Running HTTP Error Handling & Widget Freeform Grid tests...\n";
+
+    const auto& pal = Blueprint::Theme::ThemeManager::instance().activePalette();
+
+    // 1. Verify HTTP 403 Forbidden error page generation
+    std::string http403Html = Blueprint::Engine::getErrorPageHtml(
+        pal,
+        "https://httpbin.org/status/403",
+        "HTTP::ERR_FORBIDDEN",
+        "Access Forbidden (403)",
+        "You do not have permission to access the requested resource or directory on this server.",
+        "HTTP_STATUS_403"
+    );
+    assert(http403Html.find("HTTP::ERR_FORBIDDEN") != std::string::npos);
+    assert(http403Html.find("Access Forbidden (403)") != std::string::npos);
+    assert(http403Html.find("https://httpbin.org/status/403") != std::string::npos);
+    assert(http403Html.find("HTTP_STATUS_403") != std::string::npos);
+
+    // 2. Verify HTTP 500 Internal Server Error page generation
+    std::string http500Html = Blueprint::Engine::getErrorPageHtml(
+        pal,
+        "https://httpstat.us/500",
+        "HTTP::ERR_INTERNAL_SERVER_ERROR",
+        "Internal Server Error (500)",
+        "The server encountered an unexpected condition that prevented it from fulfilling the request.",
+        "HTTP_STATUS_500"
+    );
+    assert(http500Html.find("HTTP::ERR_INTERNAL_SERVER_ERROR") != std::string::npos);
+    assert(http500Html.find("Internal Server Error (500)") != std::string::npos);
+
+    // 3. Verify New Tab page has absolutely zero Cyrillic characters
+    std::string newTabHtml = Blueprint::Engine::getNewTabHtml(pal);
+    bool hasCyrillic = false;
+    for (size_t i = 0; i + 1 < newTabHtml.size(); ++i) {
+        unsigned char b1 = static_cast<unsigned char>(newTabHtml[i]);
+        unsigned char b2 = static_cast<unsigned char>(newTabHtml[i + 1]);
+        if ((b1 == 0xD0 && b2 >= 0x80) || (b1 == 0xD1 && b2 <= 0xBF)) {
+            hasCyrillic = true;
+            break;
+        }
+    }
+    (void)hasCyrillic;
+    assert(!hasCyrillic && "New tab HTML must contain strictly 0 Cyrillic characters!");
+
+    // 4. Verify Widget Freeform Grid positioning & microgrid dot pattern
+    assert(newTabHtml.find("position: absolute;") != std::string::npos);
+    assert(newTabHtml.find("radial-gradient(var(--border) 1.2px, transparent 1.2px)") != std::string::npos);
+    assert(newTabHtml.find("startWidgetFreeformDrag") != std::string::npos);
+    assert(newTabHtml.find("getZoneWidgetCount") != std::string::npos);
+    assert(newTabHtml.find("flashZoneFull") != std::string::npos);
+    assert(newTabHtml.find("drag-error") != std::string::npos);
+    assert(newTabHtml.find("zone-full") != std::string::npos);
+
+    // 5. Verify horizontal centering button, middle-click resize trigger, and ghost drop preview
+    assert(newTabHtml.find("widget-btn-center") != std::string::npos);
+    assert(newTabHtml.find("centerWidgetHorizontally") != std::string::npos);
+    assert(newTabHtml.find("e.button === 1") != std::string::npos);
+    assert(newTabHtml.find("widget-drop-preview") != std::string::npos);
+    assert(newTabHtml.find("showDropPreview") != std::string::npos);
+    assert(newTabHtml.find("blueprint-pulse") != std::string::npos);
+    assert(newTabHtml.find("scale(1.04)") != std::string::npos);
+    assert(newTabHtml.find("is-centering") != std::string::npos);
+    assert(newTabHtml.find("grid-template-rows: minmax(0, 0.82fr) auto minmax(0, 1.18fr);") != std::string::npos);
+    assert(newTabHtml.find("body.is-resizing .widget.transform-mode") != std::string::npos);
+    assert(newTabHtml.find("handle-pop") != std::string::npos);
+
+    // 6. Verify Notes Window Widget, macOS dots, theme variants, and markdown support
+    assert(newTabHtml.find("Notes Window") != std::string::npos);
+    assert(newTabHtml.find("widget-notes") != std::string::npos);
+    assert(newTabHtml.find("theme-macos") != std::string::npos);
+    assert(newTabHtml.find("theme-cyber") != std::string::npos);
+    assert(newTabHtml.find("theme-parchment") != std::string::npos);
+    assert(newTabHtml.find("theme-glass") != std::string::npos);
+    assert(newTabHtml.find("dot-red") != std::string::npos);
+    assert(newTabHtml.find("dot-yellow") != std::string::npos);
+    assert(newTabHtml.find("dot-green") != std::string::npos);
+    assert(newTabHtml.find("renderMarkdownToHtml") != std::string::npos);
+    assert(newTabHtml.find("cfg-notes-md") != std::string::npos);
+    assert(newTabHtml.find("document.body.appendChild(el)") != std::string::npos);
+
+    // 7. Verify Zone capacity expansion and fixed 8-anchor handle orientation
+    assert(newTabHtml.find("MAX_ZONE_WIDGETS = 5;") != std::string::npos);
+    assert(newTabHtml.find("startRight - curL") != std::string::npos);
+    assert(newTabHtml.find("widget-lifted") != std::string::npos);
+    assert(newTabHtml.find("is-resizing-active") != std::string::npos);
+
+    // 8. Verify 16px mechanical grid snapping, collision/overlap prevention, and robust drop preview
+    assert(newTabHtml.find("snapToGrid") != std::string::npos);
+    assert(newTabHtml.find("getZoneOverlaps") != std::string::npos);
+    assert(newTabHtml.find("findFreePositionInZone") != std::string::npos);
+    assert(newTabHtml.find("getDropZoneAtPoint") != std::string::npos);
+    assert(newTabHtml.find("preview-invalid") != std::string::npos);
+
+    // 9. Verify Media Player Widget (Now Playing, rounded pills, marquee ticker, waveforms, progress seek)
+    assert(newTabHtml.find("Media Player") != std::string::npos);
+    assert(newTabHtml.find("widget-media") != std::string::npos);
+    assert(newTabHtml.find("media-progress-track") != std::string::npos);
+    assert(newTabHtml.find("media-waveform") != std::string::npos);
+    assert(newTabHtml.find("pingpong-marquee") != std::string::npos);
+    assert(newTabHtml.find("lumenMedia") != std::string::npos);
+    assert(newTabHtml.find("window.__updateLumenMediaState") != std::string::npos);
+    assert(newTabHtml.find("sendMediaCommand") != std::string::npos);
+    assert(newTabHtml.find("Not Playing") != std::string::npos);
+    assert(newTabHtml.find("media-output-btn") == std::string::npos);
+    assert(newTabHtml.find("media-progress-track.is-disabled") != std::string::npos);
+
+    std::cout << "  -> HTTP Error Handling & Widget Freeform Grid tests PASSED!\n";
+}
+
+void testMediaWidgetSmoothTransitionsAndRoundedControls() {
+    std::cout << "[Test] Running Media Widget Smooth Transitions & Rounded Controls tests...\n";
+
+    const auto& pal = Blueprint::Theme::ThemeManager::instance().activePalette();
+    std::string newTabHtml = Blueprint::Engine::getNewTabHtml(pal);
+
+    // 1. Verify smooth crossfade transition classes and CSS rules
+    assert(newTabHtml.find(".media-container.is-track-transitioning .media-meta") != std::string::npos);
+    assert(newTabHtml.find(".media-container.is-track-transitioning .media-art-wrap") != std::string::npos);
+    assert(newTabHtml.find("prevTrackSignature") != std::string::npos);
+    assert(newTabHtml.find("is-track-transitioning") != std::string::npos);
+
+    // 2. Verify rounded control button icons (no sharp triangles or sharp rectangles)
+    assert(newTabHtml.find("rx=\"1.25\"") != std::string::npos); // Rounded prev & next bar caps
+    assert(newTabHtml.find("rx=\"1.75\"") != std::string::npos); // Rounded dual pause bars
+    assert(newTabHtml.find("M8.5 6.35c0-.98 1.07-1.59 1.91-1.07l9.42 5.88c.8.5.8 1.66 0 2.16l-9.42 5.88c-.84.52-1.91-.09-1.91-1.07V6.35z") != std::string::npos); // Smooth rounded play triangle
+
+    // 3. Verify robust artwork element structure (both image tag and fallback placeholder present)
+    assert(newTabHtml.find("<img src=\"${escapeAttr(artUrl)}\" class=\"media-art-img\"") != std::string::npos);
+    assert(newTabHtml.find("class=\"media-art-placeholder\"") != std::string::npos);
+
+    // 4. Verify MPRIS query JSON generation has NO Russian locale comma decimal bugs
+    std::string mprisJson = Blueprint::Engine::WebTab::querySystemMprisJson();
+    assert(mprisJson.find(",000000") == std::string::npos);
+    assert(mprisJson.find(",500000") == std::string::npos);
+    assert(mprisJson.find("\"hasPlayer\":") != std::string::npos);
+
+    // 5. Verify zero forbidden terms
+    assert(newTabHtml.find("toyota") == std::string::npos);
+    assert(newTabHtml.find("Toyota") == std::string::npos);
+    assert(newTabHtml.find("dynamic island") == std::string::npos);
+    assert(newTabHtml.find("Dynamic Island") == std::string::npos);
+
+    std::cout << "  -> Media Widget Smooth Transitions & Rounded Controls tests PASSED!\n";
+}
+
 int main() {
     std::cout << "========================================\n";
     std::cout << " lumen browser Unit Tests\n";
@@ -828,9 +1201,15 @@ int main() {
     testThemeColorInterpolation();
     testLumenThresholdLogicAndModal();
     testUserAgentPresetsAndCompatibility();
+    testEphemeralSanitizerAndNullProtection();
+    testThemeReactivityAndCustomDropdowns();
+    testErrorPageAndFilamentMeltdown();
+    testHttpErrorHandlingAndWidgetFreeform();
+    testMediaWidgetSmoothTransitionsAndRoundedControls();
 
     std::cout << "========================================\n";
     std::cout << " ALL UNIT TESTS PASSED SUCCESSFULLY! ✅\n";
     std::cout << "========================================\n";
     return 0;
 }
+
