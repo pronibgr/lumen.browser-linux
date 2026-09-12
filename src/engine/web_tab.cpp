@@ -1017,7 +1017,7 @@ void WebTab::applyTheme(const Theme::Palette& pal) {
 void WebTab::loadNullTabHtml() {
     stopMediaPoll();
     m_url = "lumen://null";
-    m_title = "Lumen";
+    m_title = "lumen";
     m_isLoading = false;
     m_loadProgress = 1.0f;
     std::string tmpl = Storage::Database::instance().getSetting("search_engine_template", "https://duckduckgo.com/?q=%s");
@@ -1130,7 +1130,9 @@ void WebTab::loadUrl(const std::string& url) {
     }
 
     if (full.find("://") == std::string::npos && full.find("about:") != 0) {
-        if (full.find('.') != std::string::npos && full.find(' ') == std::string::npos) {
+        if (full.rfind("/", 0) == 0) {
+            full = "file://" + full;
+        } else if (full.find('.') != std::string::npos && full.find(' ') == std::string::npos) {
             full = "https://" + full;
         } else {
             std::string tmpl = Storage::Database::instance().getSetting("search_engine_template", "https://duckduckgo.com/?q=%s");
@@ -1447,7 +1449,7 @@ void WebTab::setInternalMediaCommander(InternalMediaCommander commander) {
 }
 
 std::string WebTab::querySystemMprisJson() {
-    // 1. Check if an internal Lumen browser tab is actively playing media
+    // 1. Check if an internal lumen browser tab is actively playing media
     if (s_internalMediaProvider) {
         std::string internalJson = s_internalMediaProvider();
         if (!internalJson.empty() && internalJson.find("\"hasPlayer\":true") != std::string::npos) {

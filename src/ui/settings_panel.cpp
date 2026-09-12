@@ -127,7 +127,7 @@ void SettingsPanel::loadSavedUserAgents() {
         { "Firefox 133 (Windows)", "Windows", "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0" },
         { "Safari 18.1 (macOS)",   "macOS",   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Safari/605.1.15" },
         { "Edge 131 (Windows)",    "Windows", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0" },
-        { "Lumen Browser (Default)", "WebKit", "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15 lumen browser/1.0" }
+        { "lumen browser (Default)", "WebKit", "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15 lumen browser/1.0" }
     };
 
     std::string savedUa = Storage::Database::instance().getSetting("user_agent_active_value", "");

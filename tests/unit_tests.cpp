@@ -690,7 +690,7 @@ void testThemeColorInterpolation() {
 }
 
 void testLumenThresholdLogicAndModal() {
-    std::cout << "[Test] Running Lumen Threshold Logic & Modal tests...\n";
+    std::cout << "[Test] Running lumen threshold logic & modal tests...\n";
 
     // 1. time condition test: 20:00 to 08:00
     assert(Blueprint::Theme::ThemeManager::isNightTimeForHour(20) == true);
@@ -740,7 +740,7 @@ void testLumenThresholdLogicAndModal() {
     // reset back to noctiluca
     tm.setTheme(Blueprint::Theme::ThemeId::NOCTILUCA, false);
 
-    std::cout << "  -> Lumen Threshold Logic & Modal tests PASSED!\n";
+    std::cout << "  -> lumen threshold logic & modal tests PASSED!\n";
 }
 
 void testUserAgentPresetsAndCompatibility() {
@@ -782,7 +782,7 @@ void testUserAgentPresetsAndCompatibility() {
     assert(uas[5].platform == "Windows");
     assert(uas[5].userAgent.find("Edg/131.0.0.0") != std::string::npos);
 
-    assert(uas[6].name == "Lumen Browser (Default)");
+    assert(uas[6].name == "lumen browser (Default)");
     assert(uas[6].platform == "WebKit");
     assert(uas[6].userAgent.find("lumen browser/1.0") != std::string::npos);
 

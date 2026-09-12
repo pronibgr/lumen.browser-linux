@@ -1,7 +1,9 @@
 #pragma once
 
 #include <string>
+#if !defined(LUMEN_NO_WEBKIT)
 #include <webkit2/webkit2.h>
+#endif
 
 namespace Blueprint::Core::TorBridge {
 
@@ -24,11 +26,13 @@ OnionV3Parts parseOnionV3(const std::string& url);
 // Non-blocking TCP connect probe to 127.0.0.1:port with strict timeout (default: 300ms)
 bool probeTorDaemon(int port = 9050, int timeoutMs = 300);
 
+#if !defined(LUMEN_NO_WEBKIT)
 // Get or initialize the isolated ephemeral Tor WebKitWebContext
 WebKitWebContext* getTorWebContext(int port = 9050);
 
 // Invalidate / reset the cached context (e.g. if port changed or new session requested)
 void resetTorWebContext();
+#endif
 
 // Persistent settings accessors (backed by Storage::Database)
 bool isTorRoutingEnabled();

@@ -18,6 +18,9 @@ pkg_check_modules(SQLITE REQUIRED sqlite3)
 pkg_check_modules(CURL REQUIRED libcurl)
 pkg_check_modules(SDL2 REQUIRED sdl2)
 pkg_check_modules(WEBKIT REQUIRED webkit2gtk-4.1 gtk+-3.0)
+pkg_check_modules(GTK REQUIRED gtk+-3.0)
+pkg_check_modules(RSVG REQUIRED librsvg-2.0)
+pkg_check_modules(RLOTTIE REQUIRED rlottie)
 pkg_check_modules(OPENSSL REQUIRED openssl)
 pkg_check_modules(GSTREAMER REQUIRED gstreamer-1.0)
 
@@ -30,6 +33,9 @@ include_directories(
     ${CURL_INCLUDE_DIRS}
     ${SDL2_INCLUDE_DIRS}
     ${WEBKIT_INCLUDE_DIRS}
+    ${GTK_INCLUDE_DIRS}
+    ${RSVG_INCLUDE_DIRS}
+    ${RLOTTIE_INCLUDE_DIRS}
     ${OPENSSL_INCLUDE_DIRS}
     ${GSTREAMER_INCLUDE_DIRS}
 )
@@ -71,6 +77,12 @@ target_link_libraries(blueprint_browser
     m
 )
 
+# Create convenient lumen symlink for browser target in build directory
+add_custom_command(TARGET blueprint_browser POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E create_symlink $<TARGET_FILE:blueprint_browser> ${CMAKE_BINARY_DIR}/lumen
+    COMMENT "Creating lumen symlink in build directory"
+)
+
 add_executable(unit_tests tests/unit_tests.cpp ${COMMON_SOURCES})
 
 target_link_libraries(unit_tests
@@ -86,3 +98,56 @@ target_link_libraries(unit_tests
     pthread
     m
 )
+
+# OOBE lumen setup wizard
+add_executable(lumen-installer
+    src/installer/main.cpp
+    src/installer/installer_window.cpp
+    src/installer/installer_titlebar.cpp
+    src/installer/installer_canvas.cpp
+    src/installer/installer_steps.cpp
+    src/installer/install_executor.cpp
+    src/core/tor_provisioner.cpp
+    src/core/tor_bridge.cpp
+    src/core/database.cpp
+)
+
+target_compile_definitions(lumen-installer PRIVATE LUMEN_NO_WEBKIT=1)
+
+target_link_libraries(lumen-installer
+    ${GTK_LIBRARIES}
+    ${CAIRO_LIBRARIES}
+    ${PANGO_LIBRARIES}
+    ${SQLITE_LIBRARIES}
+    ${RSVG_LIBRARIES}
+    ${RLOTTIE_LIBRARIES}
+    pthread
+    m
+)
+
+add_executable(installer_tests
+    tests/installer_tests.cpp
+    src/installer/installer_window.cpp
+    src/installer/installer_titlebar.cpp
+    src/installer/installer_canvas.cpp
+    src/installer/installer_steps.cpp
+    src/installer/install_executor.cpp
+    src/core/tor_provisioner.cpp
+    src/core/tor_bridge.cpp
+    src/core/database.cpp
+)
+
+target_compile_definitions(installer_tests PRIVATE LUMEN_NO_WEBKIT=1)
+
+target_link_libraries(installer_tests
+    ${GTK_LIBRARIES}
+    ${CAIRO_LIBRARIES}
+    ${PANGO_LIBRARIES}
+    ${SQLITE_LIBRARIES}
+    ${RSVG_LIBRARIES}
+    ${RLOTTIE_LIBRARIES}
+    pthread
+    m
+)
+
+

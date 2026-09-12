@@ -38,11 +38,11 @@ void setupKWinWindowRules() {
         inFile.close();
     }
 
-    bool hasLumen = (content.find("lumen_browser_rule") != std::string::npos);
-    bool hasNull = (content.find("l_null_rule") != std::string::npos);
-    bool hasBlueprint = (content.find("blueprint_browser_rule") != std::string::npos);
+    bool has_lumen = (content.find("lumen_browser_rule") != std::string::npos);
+    bool has_null = (content.find("l_null_rule") != std::string::npos);
+    bool has_blueprint = (content.find("blueprint_browser_rule") != std::string::npos);
 
-    if (hasLumen && hasNull && hasBlueprint) {
+    if (has_lumen && has_null && has_blueprint) {
         return;
     }
 
@@ -112,7 +112,7 @@ void setupKWinWindowRules() {
 
     if (updatedContent.find("[lumen_browser_rule]") == std::string::npos) {
         updatedContent += "\n[lumen_browser_rule]\n"
-                          "Description=Lumen Browser Borderless\n"
+                          "Description=lumen browser borderless\n"
                           "noborder=true\n"
                           "noborderrule=2\n"
                           "wmclass=lumen-browser\n"
@@ -120,7 +120,7 @@ void setupKWinWindowRules() {
     }
     if (updatedContent.find("[l_null_rule]") == std::string::npos) {
         updatedContent += "\n[l_null_rule]\n"
-                          "Description=Lumen Null Borderless\n"
+                          "Description=lumen null borderless\n"
                           "noborder=true\n"
                           "noborderrule=2\n"
                           "wmclass=l.null\n"
@@ -281,7 +281,9 @@ bool BrowserWindow::initialize() {
     // Apply browser logo as window and taskbar icon
     const char* iconCandidates[] = {
         "assets/logo.svg",
-        "../assets/logo.svg"
+        "../assets/logo.svg",
+        "/home/elliot/.local/share/icons/hicolor/scalable/apps/lumen-browser.svg",
+        "/home/elliot/Проекты/Blueprint Browser/assets/logo.svg"
     };
     GList* iconList = nullptr;
     for (const char* iconPath : iconCandidates) {
@@ -1199,23 +1201,34 @@ bool Application::initialize(int argc, char* argv[]) {
     g_set_prgname("lumen-browser");
     g_set_application_name("lumen browser");
 
-    std::string startUrl = "lumen://newtab";
-    if (argc > 1 && argv[1] && argv[1][0] != '\0') {
-        startUrl = argv[1];
+    bool isEphemeral = false;
+    std::string startUrl = "";
+    for (int i = 1; i < argc; ++i) {
+        if (!argv[i]) continue;
+        std::string arg = argv[i];
+        if (arg == "--incognito" || arg == "--private-window" || arg == "-p" || arg == "--ephemeral") {
+            isEphemeral = true;
+        } else if (!arg.empty() && arg[0] != '-') {
+            startUrl = arg;
+        }
+    }
+
+    if (startUrl.empty()) {
+        startUrl = isEphemeral ? "lumen://null" : "lumen://newtab";
     }
 
     // Ensure window rules on KDE Wayland to hide OS titlebar
     setupKWinWindowRules();
 
-    // Register internal media bridge: allows media played in any Lumen tab across open windows to be captured and controlled
+    // Register internal media bridge: allows media played in any lumen tab across open windows to be captured and controlled
     Engine::WebTab::setInternalMediaProvider([this]() -> std::string {
         for (const auto& win : m_windows) {
             if (!win) continue;
             for (const auto& tab : win->getTabs()) {
                 if (tab && tab->isPlayingAudio() && tab->getUrl() != "lumen://newtab" && tab->getUrl() != "about:blank") {
                     std::string t = tab->getTitle();
-                    if (t.empty()) t = "Lumen Media";
-                    std::string artist = "Lumen Web";
+                    if (t.empty()) t = "lumen media";
+                    std::string artist = "lumen web";
                     size_t ytp = t.rfind(" - YouTube");
                     if (ytp != std::string::npos) {
                         t = t.substr(0, ytp);
@@ -1232,7 +1245,7 @@ bool Application::initialize(int argc, char* argv[]) {
                         }
                         return out;
                     };
-                    return "{\"hasPlayer\":true,\"player\":\"Lumen\",\"playbackStatus\":\"Playing\",\"title\":\"" +
+                    return "{\"hasPlayer\":true,\"player\":\"lumen\",\"playbackStatus\":\"Playing\",\"title\":\"" +
                            escapeJson(t) + "\",\"artist\":\"" + escapeJson(artist) + "\",\"album\":\"\",\"artUrl\":\"\",\"position\":0,\"duration\":0}";
                 }
             }
@@ -1271,7 +1284,7 @@ bool Application::initialize(int argc, char* argv[]) {
     });
 
     // Create the primary browser window
-    createWindow(/*isEphemeral=*/false, startUrl);
+    createWindow(isEphemeral, startUrl);
 
     m_running = true;
     return true;

@@ -12,8 +12,10 @@
 
 namespace Blueprint::Core::TorBridge {
 
+#if !defined(LUMEN_NO_WEBKIT)
 static WebKitWebContext* s_torContext = nullptr;
 static int s_cachedTorPort = 0;
+#endif
 
 static std::string toLower(std::string_view str) {
     std::string out;
@@ -190,6 +192,7 @@ bool probeTorDaemon(int port, int timeoutMs) {
     return (recvd == 2 && resp[0] == 0x05 && resp[1] == 0x00);
 }
 
+#if !defined(LUMEN_NO_WEBKIT)
 WebKitWebContext* getTorWebContext(int port) {
     if (port <= 0 || port > 65535) port = 9050;
 
@@ -239,6 +242,7 @@ void resetTorWebContext() {
         s_cachedTorPort = 0;
     }
 }
+#endif
 
 bool isTorRoutingEnabled() {
     return Storage::Database::instance().getSetting("onion_routing_enabled", "0") == "1";
@@ -260,7 +264,9 @@ int getTorPort() {
 void setTorPort(int port) {
     if (port <= 0 || port > 65535) port = 9050;
     Storage::Database::instance().setSetting("onion_tor_port", std::to_string(port));
+#if !defined(LUMEN_NO_WEBKIT)
     resetTorWebContext();
+#endif
 }
 
 } // namespace Blueprint::Core::TorBridge

@@ -1935,7 +1935,7 @@ inline const char* NEW_TAB_HTML = R"html(<!DOCTYPE html>
         width: '360px',
         height: '130px',
         config: {
-          html: '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;font-family:sans-serif;color:var(--accent,#38bdf8);text-align:center;"><div style="font-weight:700;font-size:16px;">Lumen Modular Surface</div><div style="font-size:12px;color:var(--fg-muted,#94a3b8);margin-top:4px;">Drag, drop and configure widgets</div></div>',
+          html: '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;font-family:sans-serif;color:var(--accent,#38bdf8);text-align:center;"><div style="font-weight:700;font-size:16px;">lumen modular surface</div><div style="font-size:12px;color:var(--fg-muted,#94a3b8);margin-top:4px;">Drag, drop and configure widgets</div></div>',
           transparent: true,
           padding: 8,
           border: 'subtle',
