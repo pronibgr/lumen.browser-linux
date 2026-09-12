@@ -65,13 +65,14 @@ SettingsPanel::SettingsPanel()
     , m_sectAnim(180.f, Engine::CubicBezier(0.16f, 1.f, 0.3f, 1.f))
     , m_torProbeCtx(std::make_shared<TorProbeContext>())
 {
-    // top 5 worldwide non-cis search engines
+    // search engines ordered by descending anonymity (privacy-first at the top)
     m_settings.searchEngines = {
-        { "Google",     "https://www.google.com/search?q=%s", false },
+        { "Brave",      "https://search.brave.com/search?q=%s", false },
         { "DuckDuckGo", "https://duckduckgo.com/?q=%s",       false },
+        { "Ecosia",     "https://www.ecosia.org/search?q=%s", false },
         { "Bing",       "https://www.bing.com/search?q=%s",   false },
         { "Yahoo!",     "https://search.yahoo.com/search?p=%s", false },
-        { "Ecosia",     "https://www.ecosia.org/search?q=%s", false }
+        { "Google",     "https://www.google.com/search?q=%s", false }
     };
     loadSavedEngines();
     loadSavedUserAgents();
@@ -213,6 +214,9 @@ void SettingsPanel::saveActiveEngine() {
         Storage::Database::instance().setSetting("search_engine_active_url", eng.urlTemplate);
         Storage::Database::instance().setSetting("search_engine_template", eng.urlTemplate);
         Storage::Database::instance().setSetting("search_engine_active", eng.name);
+        if (m_onSearchEngineChanged) {
+            m_onSearchEngineChanged(eng.urlTemplate);
+        }
     }
 }
 
@@ -1031,7 +1035,9 @@ void SettingsPanel::drawSearchSection(cairo_t* cr, double x, double y, double w)
     drawLabel(cr, x, cY, "Default Search Engine", Theme::TEXT_MAIN, 10.5f, true);
     cY += 18;
     drawLabel(cr, x, cY, "Choose which search engine is used when querying the omnibox.", Theme::TEXT_DIM, 9.f);
-    cY += 22;
+    cY += 16;
+    drawLabel(cr, x, cY, "Engines are ordered by anonymity level: privacy-focused engines appear at the top.", Theme::ACCENT_CALM, 8.5f);
+    cY += 20;
 
     // dropdown trigger button
     double trigH = 38.0;

@@ -952,12 +952,23 @@ std::string WebTab::sanitizeTrackingParams(const std::string& url) {
     return result;
 }
 
+void WebTab::setSearchTemplate(const std::string& tmpl) {
+    if (!m_webView || !WEBKIT_IS_WEB_VIEW(m_webView)) return;
+    if (m_url != "lumen://newtab" && m_url != "lumen://null") return;
+    std::string js = "if (window.__setLumenSearchTemplate) { window.__setLumenSearchTemplate('" + tmpl + "'); } else { window.__lumenSearchTemplate = '" + tmpl + "'; }";
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+    webkit_web_view_run_javascript(WEBKIT_WEB_VIEW(m_webView), js.c_str(), nullptr, nullptr, nullptr);
+#pragma GCC diagnostic pop
+}
+
 void WebTab::loadNewTabHtml() {
     m_url = "lumen://newtab";
     m_title = "New Tab";
     m_isLoading = false;
     m_loadProgress = 1.0f;
-    std::string html = getNewTabHtml(Theme::ThemeManager::instance().activePalette());
+    std::string tmpl = Storage::Database::instance().getSetting("search_engine_template", "https://duckduckgo.com/?q=%s");
+    std::string html = getNewTabHtml(Theme::ThemeManager::instance().activePalette(), tmpl);
     webkit_web_view_load_html(WEBKIT_WEB_VIEW(m_webView), html.c_str(), "lumen://newtab");
     if (m_onTitleChange) m_onTitleChange(m_title);
     if (m_onUrlChange) m_onUrlChange(m_url);
@@ -981,6 +992,7 @@ void WebTab::applyTheme(const Theme::Palette& pal) {
     if (m_url != "lumen://newtab" && m_url != "about:blank" && !m_isErrorPage) return;
 
     std::string js = "if (window.__setLumenTheme) { window.__setLumenTheme({"
+        "isDark: " + std::string(pal.isDark ? "true" : "false") + ","
         "bgBase: '" + pal.bgBase.toCssRgba() + "',"
         "bgSurface: '" + pal.bgSurface.toCssRgba() + "',"
         "bgSubtle: '" + pal.bgSubtle.toCssRgba() + "',"
@@ -1008,7 +1020,9 @@ void WebTab::loadNullTabHtml() {
     m_title = "Lumen";
     m_isLoading = false;
     m_loadProgress = 1.0f;
-    webkit_web_view_load_html(WEBKIT_WEB_VIEW(m_webView), NULL_TAB_HTML, "lumen://null");
+    std::string tmpl = Storage::Database::instance().getSetting("search_engine_template", "https://duckduckgo.com/?q=%s");
+    std::string html = getNullTabHtml(tmpl);
+    webkit_web_view_load_html(WEBKIT_WEB_VIEW(m_webView), html.c_str(), "lumen://null");
     if (m_onTitleChange) m_onTitleChange(m_title);
     if (m_onUrlChange) m_onUrlChange(m_url);
     if (m_onProgressChange) m_onProgressChange(1.0f);

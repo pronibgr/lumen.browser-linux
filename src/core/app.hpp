@@ -21,6 +21,7 @@ public:
     bool initialize();
     GtkWidget* getWindow() const { return m_window; }
     bool isEphemeral() const { return m_isEphemeral; }
+    const std::vector<std::shared_ptr<Engine::WebTab>>& getTabs() const { return m_tabs; }
 
     void createTab(const std::string& url = "", bool switchToNewTab = true);
     void closeTab(int index);

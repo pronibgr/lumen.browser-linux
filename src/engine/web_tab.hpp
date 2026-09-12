@@ -35,6 +35,7 @@ public:
     void setLoadProgress(float p) { m_loadProgress = p; }
     void setIsLoading(bool v)     { m_isLoading = v; }
     void setTitle(const std::string& t) { m_title = t; }
+    void setSearchTemplate(const std::string& tmpl);
 
     bool canGoBack()    const;
     bool canGoForward() const;

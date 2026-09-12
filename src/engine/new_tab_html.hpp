@@ -1,5 +1,6 @@
 #pragma once
 #include "theme/colors.hpp"
+#include "storage/database.hpp"
 #include <string>
 
 namespace Blueprint::Engine {
@@ -377,7 +378,7 @@ inline const char* NEW_TAB_HTML = R"html(<!DOCTYPE html>
     max-width: 100% !important;
     max-height: 100% !important;
     box-sizing: border-box;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+    box-shadow: var(--widget-shadow, 0 8px 24px rgba(0, 0, 0, 0.3));
     transition: box-shadow 0.24s cubic-bezier(0.16, 1, 0.3, 1),
                 border-color 0.2s,
                 background-color 0.2s,
@@ -397,7 +398,7 @@ inline const char* NEW_TAB_HTML = R"html(<!DOCTYPE html>
     cursor: grabbing !important;
     opacity: 0.8 !important;
     z-index: 999999 !important;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35) !important;
+    box-shadow: var(--widget-drag-shadow, 0 8px 24px rgba(0, 0, 0, 0.35)) !important;
   }
   /* Only pointer-events: none on children so they do not capture cursor during flight.
      NEVER apply box-shadow, borders, or transforms to child elements! */
@@ -408,12 +409,12 @@ inline const char* NEW_TAB_HTML = R"html(<!DOCTYPE html>
   /* Lifted state (Flight Elevation): ONLY when widget is outside any zone or dragging from catalog */
   .widget.widget-lifted {
     transform: scale(1.04) translateY(-4px) !important;
-    box-shadow: 0 22px 48px rgba(0, 0, 0, 0.6) !important;
+    box-shadow: var(--widget-lifted-shadow, 0 22px 48px rgba(0, 0, 0, 0.6)) !important;
     opacity: 0.88 !important;
   }
   body.edit-mode .widget:hover {
     border-color: var(--accent);
-    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.5);
+    box-shadow: var(--widget-hover-shadow, 0 10px 28px rgba(0, 0, 0, 0.5));
   }
   .widget.is-centering {
     transition: left 0.32s cubic-bezier(0.16, 1, 0.3, 1), transform 0.16s ease-out !important;
@@ -952,8 +953,40 @@ inline const char* NEW_TAB_HTML = R"html(<!DOCTYPE html>
   .widget-media {
     background: var(--bg-surface);
     border-radius: 22px !important;
-    box-shadow: 0 12px 36px rgba(0, 0, 0, 0.45);
+    box-shadow: var(--widget-media-shadow, 0 12px 36px rgba(0, 0, 0, 0.45));
     overflow: hidden;
+  }
+
+  /* ──────────────── Light Themes Widget & Media Styling ──────────────── */
+  body.light-theme .widget,
+  body.light-theme .widget-media,
+  body.light-theme .widget:hover,
+  body.light-theme body.edit-mode .widget:hover,
+  body.light-theme .widget.is-dragging,
+  body.light-theme .widget.widget-lifted {
+    box-shadow: none !important;
+  }
+  body.light-theme .media-art-wrap {
+    background: var(--bg-surface);
+    box-shadow: none !important;
+    border: 1px solid var(--border);
+  }
+  body.light-theme .media-art-placeholder {
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, var(--bg-subtle) 100%);
+    color: var(--accent);
+    border: 1px solid var(--border);
+  }
+  body.light-theme .media-container.no-media .media-art-placeholder {
+    opacity: 0.65;
+  }
+  body.light-theme .media-progress-track {
+    background: var(--bg-active);
+  }
+  body.light-theme .media-progress-fill {
+    background: var(--fg-primary);
+  }
+  body.light-theme .media-btn:hover {
+    background: rgba(0, 0, 0, 0.06);
   }
   .media-container {
     width: 100%;
@@ -985,7 +1018,11 @@ inline const char* NEW_TAB_HTML = R"html(<!DOCTYPE html>
     position: relative;
     background: #18181b;
     box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
-    transition: opacity 0.22s cubic-bezier(0.16, 1, 0.3, 1), transform 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+    transition: opacity 0.22s cubic-bezier(0.16, 1, 0.3, 1),
+                transform 0.22s cubic-bezier(0.16, 1, 0.3, 1),
+                background-color 0.25s ease,
+                border-color 0.25s ease,
+                box-shadow 0.25s ease;
   }
   .media-art-img {
     width: 100%;
@@ -1001,7 +1038,11 @@ inline const char* NEW_TAB_HTML = R"html(<!DOCTYPE html>
     align-items: center;
     justify-content: center;
     background: linear-gradient(135deg, #312e81 0%, #831843 100%);
+    color: rgba(255, 255, 255, 0.9);
     border-radius: 12px;
+    transition: background 0.25s ease,
+                color 0.25s ease,
+                border-color 0.25s ease;
   }
 
   /* Title & Artist */
@@ -1953,6 +1994,28 @@ inline const char* NEW_TAB_HTML = R"html(<!DOCTYPE html>
         root.style.setProperty('--accent-tint', theme.accentTint || (theme.accent + '14'));
       }
       if (theme.danger) root.style.setProperty('--danger', theme.danger);
+
+      const isLight = (theme.isDark === false);
+      if (isLight) {
+        document.body.classList.add('light-theme');
+        root.style.setProperty('--widget-shadow', 'none');
+        root.style.setProperty('--widget-drag-shadow', 'none');
+        root.style.setProperty('--widget-lifted-shadow', 'none');
+        root.style.setProperty('--widget-hover-shadow', 'none');
+        root.style.setProperty('--widget-media-shadow', 'none');
+      } else {
+        document.body.classList.remove('light-theme');
+        root.style.setProperty('--widget-shadow', '0 8px 24px rgba(0, 0, 0, 0.3)');
+        root.style.setProperty('--widget-drag-shadow', '0 8px 24px rgba(0, 0, 0, 0.35)');
+        root.style.setProperty('--widget-lifted-shadow', '0 22px 48px rgba(0, 0, 0, 0.6)');
+        root.style.setProperty('--widget-hover-shadow', '0 10px 28px rgba(0, 0, 0, 0.5)');
+        root.style.setProperty('--widget-media-shadow', '0 12px 36px rgba(0, 0, 0, 0.45)');
+      }
+    };
+
+    window.__lumenSearchTemplate = '/*LUMEN_SEARCH_TEMPLATE*/https://duckduckgo.com/?q=%s';
+    window.__setLumenSearchTemplate = function(tmpl) {
+      if (tmpl) window.__lumenSearchTemplate = tmpl;
     };
 
     // ──────────────── Search History Engine ────────────────
@@ -2012,7 +2075,12 @@ inline const char* NEW_TAB_HTML = R"html(<!DOCTYPE html>
       if (val.includes('.') && !val.includes(' ')) {
         window.location.href = val.startsWith('http') ? val : 'https://' + val;
       } else {
-        window.location.href = 'https://duckduckgo.com/?q=' + encodeURIComponent(val);
+        const tmpl = window.__lumenSearchTemplate || '/*LUMEN_SEARCH_TEMPLATE*/https://duckduckgo.com/?q=%s';
+        if (tmpl.includes('%s')) {
+          window.location.href = tmpl.replace('%s', encodeURIComponent(val));
+        } else {
+          window.location.href = tmpl + encodeURIComponent(val);
+        }
       }
     }
 
@@ -4056,8 +4124,26 @@ inline const char* NEW_TAB_HTML = R"html(<!DOCTYPE html>
 </html>
 )html";
 
-inline std::string getNewTabHtml(const Theme::Palette& pal) {
+inline std::string getNewTabHtml(const Theme::Palette& pal, const std::string& searchTemplate = "") {
     std::string html = NEW_TAB_HTML;
+
+    std::string tmpl = searchTemplate;
+    if (tmpl.empty()) {
+        tmpl = Storage::Database::instance().getSetting("search_engine_template", "https://duckduckgo.com/?q=%s");
+    }
+
+    size_t sPos = 0;
+    while ((sPos = html.find("/*LUMEN_SEARCH_TEMPLATE*/https://duckduckgo.com/?q=%s", sPos)) != std::string::npos) {
+        html.replace(sPos, 53, tmpl);
+        sPos += tmpl.length();
+    }
+
+    std::string shadowVal = pal.isDark ? "0 8px 24px rgba(0, 0, 0, 0.3)" : "none";
+    std::string mediaShadowVal = pal.isDark ? "0 12px 36px rgba(0, 0, 0, 0.45)" : "none";
+    std::string dragShadowVal = pal.isDark ? "0 8px 24px rgba(0, 0, 0, 0.35)" : "none";
+    std::string liftedShadowVal = pal.isDark ? "0 22px 48px rgba(0, 0, 0, 0.6)" : "none";
+    std::string hoverShadowVal = pal.isDark ? "0 10px 28px rgba(0, 0, 0, 0.5)" : "none";
+
     std::string rootVars =
         "    --bg-base: " + pal.bgBase.toCssRgba() + ";\n"
         "    --bg-surface: " + pal.bgSurface.toCssRgba() + ";\n"
@@ -4071,7 +4157,12 @@ inline std::string getNewTabHtml(const Theme::Palette& pal) {
         "    --accent: " + pal.accent.toCssRgba() + ";\n"
         "    --accent-glow: " + pal.accent.toCssHex() + "40;\n"
         "    --accent-tint: " + pal.accent.toCssHex() + "15;\n"
-        "    --danger: " + pal.danger.toCssRgba() + ";\n";
+        "    --danger: " + pal.danger.toCssRgba() + ";\n"
+        "    --widget-shadow: " + shadowVal + ";\n"
+        "    --widget-media-shadow: " + mediaShadowVal + ";\n"
+        "    --widget-drag-shadow: " + dragShadowVal + ";\n"
+        "    --widget-lifted-shadow: " + liftedShadowVal + ";\n"
+        "    --widget-hover-shadow: " + hoverShadowVal + ";\n";
 
     size_t rootPos = html.find(":root {");
     if (rootPos != std::string::npos) {
@@ -4080,6 +4171,14 @@ inline std::string getNewTabHtml(const Theme::Palette& pal) {
             html.replace(rootPos + 7, closePos - (rootPos + 7), "\n" + rootVars);
         }
     }
+
+    if (!pal.isDark) {
+        size_t bodyPos = html.find("<body>");
+        if (bodyPos != std::string::npos) {
+            html.replace(bodyPos, 6, "<body class=\"light-theme\">");
+        }
+    }
+
     return html;
 }
 

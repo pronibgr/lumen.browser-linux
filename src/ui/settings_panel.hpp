@@ -104,6 +104,7 @@ public:
     }
     Theme::ThemeId getPendingLightTheme() const { return m_pendingLightTheme; }
 
+    void setOnSearchEngineChanged(std::function<void(const std::string& tmpl)> cb) { m_onSearchEngineChanged = cb; }
     void setOnUserAgentChanged(std::function<void(const std::string& ua)> cb) { m_onUserAgentChanged = cb; }
     bool isUaDropdownOpen() const { return m_uaDropdownOpen; }
     void setUaDropdownOpen(bool v) { m_uaDropdownOpen = v; }
@@ -224,6 +225,7 @@ private:
     int    m_hoveredUaIdx = -1;
     double m_uaTriggerX = 0, m_uaTriggerY = 0, m_uaTriggerW = 0, m_uaTriggerH = 0;
     double m_uaDropdownX = 0, m_uaDropdownY = 0, m_uaDropdownW = 0, m_uaDropdownH = 0;
+    std::function<void(const std::string&)> m_onSearchEngineChanged;
     std::function<void(const std::string&)> m_onUserAgentChanged;
 
     // cached geometry

@@ -372,14 +372,17 @@ void testSearchEnginesAndReloadSlider() {
     for (int i = 0; i < 60; ++i) panel.update(0.016f);
     assert(std::abs(panel.getSliderVisual(4) - 2.0f) < 0.01f);
 
-    // verify top 5 non-cis worldwide search engines
+    // verify worldwide non-cis search engines ordered by descending anonymity
     const auto& engines = panel.settings().searchEngines;
-    assert(engines.size() >= 5);
-    assert(engines[0].name == "Google");
+    assert(engines.size() >= 6);
+    assert(engines[0].name == "Brave");
     assert(engines[1].name == "DuckDuckGo");
-    assert(engines[2].name == "Bing");
-    assert(engines[3].name == "Yahoo!");
-    assert(engines[4].name == "Ecosia");
+    assert(engines[2].name == "Ecosia");
+    assert(engines[3].name == "Bing");
+    assert(engines[4].name == "Yahoo!");
+    assert(engines[5].name == "Google");
+    assert(engines[0].urlTemplate == "https://search.brave.com/search?q=%s");
+    assert(engines[0].isCustom == false);
     (void)engines;
 
     // search url template formatting
@@ -418,7 +421,7 @@ void testSearchEnginesAndReloadSlider() {
     panel.handleKeyPress(SDLK_RETURN, 0, nullptr);
     size_t countAfterCreate = panel.settings().searchEngines.size();
     (void)countAfterCreate;
-    assert(countAfterCreate == 6);
+    assert(countAfterCreate == 7);
     assert(panel.settings().searchEngines.back().name == "Searx");
     assert(panel.settings().searchEngines.back().isCustom == true);
     assert(panel.settings().activeSearchEngineIndex == static_cast<int>(countAfterCreate - 1));
@@ -433,25 +436,27 @@ void testSearchEnginesAndReloadSlider() {
     }
 
     // verify built-in search engines cannot be deleted
-    panel.triggerDeleteCustomSearchEngine(0); // Google (built-in)
+    panel.triggerDeleteCustomSearchEngine(0); // Brave (built-in)
     assert(panel.isDeleteConfirmModalOpen() == false);
     panel.triggerDeleteCustomSearchEngine(1); // DuckDuckGo (built-in)
     assert(panel.isDeleteConfirmModalOpen() == false);
+    panel.triggerDeleteCustomSearchEngine(5); // Google (built-in)
+    assert(panel.isDeleteConfirmModalOpen() == false);
 
     // verify custom search engine deletion modal and deletion
-    panel.triggerDeleteCustomSearchEngine(5); // Searx (custom)
+    panel.triggerDeleteCustomSearchEngine(6); // Searx (custom)
     assert(panel.isDeleteConfirmModalOpen() == true);
     // press enter to confirm deletion
     panel.handleKeyPress(SDLK_RETURN, 0, nullptr);
     assert(panel.isDeleteConfirmModalOpen() == false);
-    assert(panel.settings().searchEngines.size() == 5);
+    assert(panel.settings().searchEngines.size() == 6);
     // active engine safely fell back to DuckDuckGo
     assert(panel.settings().activeSearchEngineIndex == 1);
 
     // verify deletion persisted to database on fresh instance
     {
         Blueprint::UI::SettingsPanel panel3;
-        assert(panel3.settings().searchEngines.size() == 5);
+        assert(panel3.settings().searchEngines.size() == 6);
         assert(panel3.settings().activeSearchEngineIndex == 1);
     }
 
@@ -909,6 +914,18 @@ void testThemeReactivityAndCustomDropdowns() {
     assert(dynamicHtml.find(calcitePal.bgBase.toCssRgba()) != std::string::npos);
     assert(dynamicHtml.find(calcitePal.bgSurface.toCssRgba()) != std::string::npos);
     assert(dynamicHtml.find(calcitePal.accent.toCssRgba()) != std::string::npos);
+    // Verify light theme has no widget shadows and includes light-theme class
+    assert(dynamicHtml.find("--widget-shadow: none;") != std::string::npos);
+    assert(dynamicHtml.find("light-theme") != std::string::npos);
+
+    // Verify dark theme preserves widget shadows
+    const auto& noctPal = tm.getPalette(Blueprint::Theme::ThemeId::NOCTILUCA);
+    std::string darkHtml = Blueprint::Engine::getNewTabHtml(noctPal);
+    assert(darkHtml.find("--widget-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);") != std::string::npos);
+
+    // Verify custom search engine template is applied to newtab
+    std::string braveNewTabHtml = Blueprint::Engine::getNewTabHtml(calcitePal, "https://search.brave.com/search?q=%s");
+    assert(braveNewTabHtml.find("window.__lumenSearchTemplate = 'https://search.brave.com/search?q=%s';") != std::string::npos);
 
     // 4. Custom dropdown components & settings modal structure
     assert(dynamicHtml.find("custom-dropdown") != std::string::npos);

@@ -169,6 +169,18 @@ BrowserWindow::~BrowserWindow() {
         Theme::ThemeManager::instance().removeThemeListener(m_themeListenerId);
         m_themeListenerId = 0;
     }
+    for (auto& tab : m_tabs) {
+        if (tab) {
+            tab->stopMediaPoll();
+            tab->setCallbacks(nullptr, nullptr, nullptr);
+            tab->setOnSiteDataChanged(nullptr);
+            tab->setOnNewTabRequested(nullptr);
+            tab->setOnFullscreenToggled(nullptr);
+            tab->setOnOpenSettingsRequested(nullptr);
+            tab->setOnWebViewRecreated(nullptr);
+        }
+    }
+    m_tabs.clear();
     if (m_window) {
         GtkWidget* w = m_window;
         m_window = nullptr;
@@ -390,6 +402,17 @@ bool BrowserWindow::initialize() {
     g_signal_connect(m_window, "destroy", G_CALLBACK(+[](GtkWidget*, gpointer data) {
         auto* self = static_cast<BrowserWindow*>(data);
         self->m_window = nullptr; // prevent double destroy
+        if (self->m_heartbeatTimerId) {
+            g_source_remove(self->m_heartbeatTimerId);
+            self->m_heartbeatTimerId = 0;
+        }
+        if (self->m_themeListenerId) {
+            Theme::ThemeManager::instance().removeThemeListener(self->m_themeListenerId);
+            self->m_themeListenerId = 0;
+        }
+        for (auto& tab : self->m_tabs) {
+            if (tab) tab->stopMediaPoll();
+        }
         g_idle_add(+[](gpointer d) -> gboolean {
             auto* bwin = static_cast<BrowserWindow*>(d);
             bwin->m_app->removeWindow(bwin);
@@ -428,6 +451,18 @@ bool BrowserWindow::initialize() {
 
     m_topbar.getOmnibox().setOnNavigate([this](const std::string& url) {
         navigateActiveTab(url);
+    });
+
+    m_topbar.getSettings().setOnSearchEngineChanged([this](const std::string& tmpl) {
+        m_topbar.getOmnibox().setSearchTemplate(tmpl);
+        if (m_app) {
+            for (const auto& win : m_app->getWindows()) {
+                if (!win) continue;
+                for (const auto& tab : win->getTabs()) {
+                    if (tab) tab->setSearchTemplate(tmpl);
+                }
+            }
+        }
     });
 
     m_topbar.setOnBack([this]() {
@@ -497,63 +532,6 @@ bool BrowserWindow::initialize() {
         }
         return G_SOURCE_CONTINUE;
     }, this);
-
-    // Register internal media bridge: allows media played in any Lumen tab to be captured and controlled in the widget
-    Engine::WebTab::setInternalMediaProvider([this]() -> std::string {
-        for (const auto& tab : m_tabs) {
-            if (tab && tab->isPlayingAudio() && tab->getUrl() != "lumen://newtab" && tab->getUrl() != "about:blank") {
-                std::string t = tab->getTitle();
-                if (t.empty()) t = "Lumen Media";
-                std::string artist = "Lumen Web";
-                size_t ytp = t.rfind(" - YouTube");
-                if (ytp != std::string::npos) {
-                    t = t.substr(0, ytp);
-                    artist = "YouTube";
-                }
-                auto escapeJson = [](const std::string& s) {
-                    std::string out;
-                    for (char c : s) {
-                        if (c == '"') out += "\\\"";
-                        else if (c == '\\') out += "\\\\";
-                        else if (c == '\n') out += "\\n";
-                        else if (c == '\r') out += "\\r";
-                        else out += c;
-                    }
-                    return out;
-                };
-                return "{\"hasPlayer\":true,\"player\":\"Lumen\",\"playbackStatus\":\"Playing\",\"title\":\"" +
-                       escapeJson(t) + "\",\"artist\":\"" + escapeJson(artist) + "\",\"album\":\"\",\"artUrl\":\"\",\"position\":0,\"duration\":0}";
-            }
-        }
-        return "";
-    });
-
-    Engine::WebTab::setInternalMediaCommander([this](const std::string& action, double param) -> bool {
-        for (const auto& tab : m_tabs) {
-            if (tab && tab->getWebView() && WEBKIT_IS_WEB_VIEW(tab->getWebView()) && tab->isPlayingAudio() && tab->getUrl() != "lumen://newtab") {
-                std::string js;
-                if (action == "playPause") {
-                    js = "(() => { const v = document.querySelector('video, audio'); if (v) { if (v.paused) v.play(); else v.pause(); } })()";
-                } else if (action == "setPosition") {
-                    js = "(() => { const v = document.querySelector('video, audio'); if (v) { v.currentTime = " + std::to_string(static_cast<int>(param)) + "; } })()";
-                } else if (action == "seek") {
-                    js = "(() => { const v = document.querySelector('video, audio'); if (v) { v.currentTime += " + std::to_string(static_cast<int>(param)) + "; } })()";
-                } else if (action == "next") {
-                    js = "(() => { const v = document.querySelector('video, audio'); if (v) { v.currentTime += 10; } })()";
-                } else if (action == "prev" || action == "previous") {
-                    js = "(() => { const v = document.querySelector('video, audio'); if (v) { if (v.currentTime > 3) v.currentTime = 0; else v.currentTime -= 10; } })()";
-                }
-                if (!js.empty()) {
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-                    webkit_web_view_run_javascript(WEBKIT_WEB_VIEW(tab->getWebView()), js.c_str(), nullptr, nullptr, nullptr);
-#pragma GCC diagnostic pop
-                    return true;
-                }
-            }
-        }
-        return false;
-    });
 
     gtk_widget_show_all(m_window);
     gtk_widget_hide(m_overlayArea);
@@ -1229,6 +1207,69 @@ bool Application::initialize(int argc, char* argv[]) {
     // Ensure window rules on KDE Wayland to hide OS titlebar
     setupKWinWindowRules();
 
+    // Register internal media bridge: allows media played in any Lumen tab across open windows to be captured and controlled
+    Engine::WebTab::setInternalMediaProvider([this]() -> std::string {
+        for (const auto& win : m_windows) {
+            if (!win) continue;
+            for (const auto& tab : win->getTabs()) {
+                if (tab && tab->isPlayingAudio() && tab->getUrl() != "lumen://newtab" && tab->getUrl() != "about:blank") {
+                    std::string t = tab->getTitle();
+                    if (t.empty()) t = "Lumen Media";
+                    std::string artist = "Lumen Web";
+                    size_t ytp = t.rfind(" - YouTube");
+                    if (ytp != std::string::npos) {
+                        t = t.substr(0, ytp);
+                        artist = "YouTube";
+                    }
+                    auto escapeJson = [](const std::string& s) {
+                        std::string out;
+                        for (char c : s) {
+                            if (c == '"') out += "\\\"";
+                            else if (c == '\\') out += "\\\\";
+                            else if (c == '\n') out += "\\n";
+                            else if (c == '\r') out += "\\r";
+                            else out += c;
+                        }
+                        return out;
+                    };
+                    return "{\"hasPlayer\":true,\"player\":\"Lumen\",\"playbackStatus\":\"Playing\",\"title\":\"" +
+                           escapeJson(t) + "\",\"artist\":\"" + escapeJson(artist) + "\",\"album\":\"\",\"artUrl\":\"\",\"position\":0,\"duration\":0}";
+                }
+            }
+        }
+        return "";
+    });
+
+    Engine::WebTab::setInternalMediaCommander([this](const std::string& action, double param) -> bool {
+        for (const auto& win : m_windows) {
+            if (!win) continue;
+            for (const auto& tab : win->getTabs()) {
+                if (tab && tab->getWebView() && WEBKIT_IS_WEB_VIEW(tab->getWebView()) && tab->isPlayingAudio() && tab->getUrl() != "lumen://newtab") {
+                    std::string js;
+                    if (action == "playPause") {
+                        js = "(() => { const v = document.querySelector('video, audio'); if (v) { if (v.paused) v.play(); else v.pause(); } })()";
+                    } else if (action == "setPosition") {
+                        js = "(() => { const v = document.querySelector('video, audio'); if (v) { v.currentTime = " + std::to_string(static_cast<int>(param)) + "; } })()";
+                    } else if (action == "seek") {
+                        js = "(() => { const v = document.querySelector('video, audio'); if (v) { v.currentTime += " + std::to_string(static_cast<int>(param)) + "; } })()";
+                    } else if (action == "next") {
+                        js = "(() => { const v = document.querySelector('video, audio'); if (v) { v.currentTime += 10; } })()";
+                    } else if (action == "prev" || action == "previous") {
+                        js = "(() => { const v = document.querySelector('video, audio'); if (v) { if (v.currentTime > 3) v.currentTime = 0; else v.currentTime -= 10; } })()";
+                    }
+                    if (!js.empty()) {
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+                        webkit_web_view_run_javascript(WEBKIT_WEB_VIEW(tab->getWebView()), js.c_str(), nullptr, nullptr, nullptr);
+#pragma GCC diagnostic pop
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    });
+
     // Create the primary browser window
     createWindow(/*isEphemeral=*/false, startUrl);
 
@@ -1265,6 +1306,8 @@ void Application::run() {
 void Application::shutdown() {
     if (m_running) {
         m_running = false;
+        Engine::WebTab::setInternalMediaProvider(nullptr);
+        Engine::WebTab::setInternalMediaCommander(nullptr);
         m_windows.clear();
         curl_global_cleanup();
         gtk_main_quit();

@@ -1,4 +1,6 @@
 #pragma once
+#include "storage/database.hpp"
+#include <string>
 
 namespace Blueprint::Engine {
 
@@ -281,7 +283,12 @@ inline const char* NULL_TAB_HTML = R"html(<!DOCTYPE html>
       } else if (raw.indexOf('.') !== -1 && raw.indexOf(' ') === -1) {
         targetUrl = stripTrackingParams('https://' + raw);
       } else {
-        targetUrl = 'https://duckduckgo.com/?q=' + encodeURIComponent(raw);
+        const tmpl = window.__lumenSearchTemplate || '/*LUMEN_SEARCH_TEMPLATE*/https://duckduckgo.com/?q=%s';
+        if (tmpl.indexOf('%s') !== -1) {
+          targetUrl = tmpl.replace('%s', encodeURIComponent(raw));
+        } else {
+          targetUrl = tmpl + encodeURIComponent(raw);
+        }
       }
 
       purgeBuffer();
@@ -296,5 +303,18 @@ inline const char* NULL_TAB_HTML = R"html(<!DOCTYPE html>
   </script>
 </body>
 </html>)html";
+
+inline std::string getNullTabHtml(const std::string& searchTemplate = "") {
+    std::string html = NULL_TAB_HTML;
+    std::string tmpl = searchTemplate;
+    if (tmpl.empty()) {
+        tmpl = Storage::Database::instance().getSetting("search_engine_template", "https://duckduckgo.com/?q=%s");
+    }
+    size_t sPos = html.find("/*LUMEN_SEARCH_TEMPLATE*/https://duckduckgo.com/?q=%s");
+    if (sPos != std::string::npos) {
+        html.replace(sPos, 53, tmpl);
+    }
+    return html;
+}
 
 } // namespace Blueprint::Engine
