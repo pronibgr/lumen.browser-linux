@@ -3,6 +3,8 @@
 #include <vector>
 #include <functional>
 #include <cstdint>
+#include <atomic>
+#include <memory>
 #include <cairo/cairo.h>
 #include "engine/tab_transition.hpp"
 #include "theme/colors.hpp"
@@ -62,6 +64,7 @@ struct BrowserSettings {
 class SettingsPanel {
 public:
     SettingsPanel();
+    ~SettingsPanel();
 
     void toggle();
     void setVisible(bool v);
@@ -110,6 +113,7 @@ public:
     void setOnionRoutingEnabled(bool v);
     int  getOnionTorPort() const { return m_onionTorPort; }
     void setOnionTorPort(int port);
+    float getTorPortAnim() const { return m_torPortAnim; }
 
     void update(float dt);
     void draw(cairo_t* cr, double winW, double winH);
@@ -263,14 +267,22 @@ private:
 
     bool  m_onionRoutingEnabled = false;
     int   m_onionTorPort = 9050;
-    bool  m_torProbeOnline = false;
+
+    struct TorProbeContext {
+        std::atomic<bool> online{false};
+        std::atomic<bool> probing{false};
+        std::atomic<bool> needsRedraw{false};
+        std::atomic<bool> alive{true};
+    };
+    std::shared_ptr<TorProbeContext> m_torProbeCtx;
     float m_torProbeTimer = 0.0f;
 
-    // Fluid animations for Privacy & Tor tab
+    void triggerTorProbe();
+    bool isTorProbeOnline() const { return m_torProbeCtx ? m_torProbeCtx->online.load() : false; }
+
+    // Fluid animations for Tor Bridge tab
     float m_onionToggleAnim = 0.0f;
-    float m_torPortSliderX = 0.0f;
-    float m_torPortSliderW = 0.0f;
-    bool  m_torPortSliderInit = false;
+    float m_torPortAnim = 0.0f;
     float m_statusBannerAlpha = 0.0f;
     float m_spinnerAngle = 0.0f;
     float m_termLogHeightAnim = 0.0f;

@@ -784,7 +784,12 @@ void CompactTopbar::drawClearDataModal(cairo_t* cr, double winW, double winH) {
 
     // full screen backdrop dim
     cairo_set_source_rgba(cr, 0, 0, 0, 0.65 * alpha);
-    cairo_rectangle(cr, 0, 0, winW, winH);
+    double r = m_isMaximized ? 0.0 : 12.0;
+    if (r > 0.0) {
+        rr(cr, 0, 0, winW, winH, r);
+    } else {
+        cairo_rectangle(cr, 0, 0, winW, winH);
+    }
     cairo_fill(cr);
 
     // center popup box
@@ -948,6 +953,18 @@ void CompactTopbar::drawClearDataModal(cairo_t* cr, double winW, double winH) {
 }
 
 void CompactTopbar::drawOverlays(cairo_t* cr, double winW, double winH) {
+    cairo_save(cr);
+    double r = m_isMaximized ? 0.0 : 12.0;
+    if (r > 0.0) {
+        cairo_new_path(cr);
+        cairo_arc(cr, winW - r, r, r, -M_PI / 2, 0);
+        cairo_arc(cr, winW - r, winH - r, r, 0, M_PI / 2);
+        cairo_arc(cr, r, winH - r, r, M_PI / 2, M_PI);
+        cairo_arc(cr, r, r, r, M_PI, 3 * M_PI / 2);
+        cairo_close_path(cr);
+        cairo_clip(cr);
+    }
+
     // 1. Omnibox dropdown (below row 2)
     m_omnibox.drawPopup(cr, m_omniboxX, m_omniboxY + Theme::OMNIBOX_HEIGHT + 4, m_omniboxW);
 
@@ -959,6 +976,8 @@ void CompactTopbar::drawOverlays(cairo_t* cr, double winW, double winH) {
 
     // 4. Settings Panel
     m_settings.draw(cr, winW, winH);
+
+    cairo_restore(cr);
 }
 
 bool CompactTopbar::handleMouseMove(double mx, double my) {

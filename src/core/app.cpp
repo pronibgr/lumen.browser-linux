@@ -816,8 +816,12 @@ void BrowserWindow::handleScrollZoom(double dy) {
 
 void BrowserWindow::clearActiveSiteData() {
     if (!validActive()) return;
-    m_tabs[m_activeIdx]->clearWebsiteData([](bool success) {
+    auto tab = m_tabs[m_activeIdx];
+    tab->clearWebsiteData([tab](bool success) {
         std::cout << "[Core] Cleared website data: " << (success ? "OK" : "Failed") << "\n";
+        if (tab) {
+            tab->reload();
+        }
     });
 }
 
@@ -924,7 +928,35 @@ gboolean BrowserWindow::onOverlayDraw(GtkWidget* widget, cairo_t* cr, gpointer d
     auto* self = static_cast<BrowserWindow*>(data);
     int w = gtk_widget_get_allocated_width(widget);
     int h = gtk_widget_get_allocated_height(widget);
+
+    cairo_save(cr);
+    double r = self->m_topbar.isMaximized() ? 0.0 : 12.0;
+    if (r > 0.0) {
+        cairo_new_path(cr);
+        cairo_arc(cr, w - r, r, r, -M_PI / 2, 0);
+        cairo_arc(cr, w - r, h - r, r, 0, M_PI / 2);
+        cairo_arc(cr, r, h - r, r, M_PI / 2, M_PI);
+        cairo_arc(cr, r, r, r, M_PI, 3 * M_PI / 2);
+        cairo_close_path(cr);
+        cairo_clip(cr);
+    }
+
     self->m_topbar.drawOverlays(cr, w, h);
+    cairo_restore(cr);
+
+    // Re-stroke subtle window border on top of dimmed overlay
+    if (r > 0.0) {
+        cairo_new_path(cr);
+        cairo_arc(cr, w - r, r, r, -M_PI / 2, 0);
+        cairo_arc(cr, w - r, h - r, r, 0, M_PI / 2);
+        cairo_arc(cr, r, h - r, r, M_PI / 2, M_PI);
+        cairo_arc(cr, r, r, r, M_PI, 3 * M_PI / 2);
+        cairo_close_path(cr);
+        cairo_set_source_rgba(cr, 1.0, 1.0, 1.0, 0.08);
+        cairo_set_line_width(cr, 1.0);
+        cairo_stroke(cr);
+    }
+
     return FALSE;
 }
 

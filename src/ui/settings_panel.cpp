@@ -8,6 +8,7 @@
 #include "storage/database.hpp"
 #include "core/tor_bridge.hpp"
 #include "core/tor_provisioner.hpp"
+#include <thread>
 #include <gtk/gtk.h>
 #include <SDL2/SDL.h>
 #include <pango/pangocairo.h>
@@ -62,6 +63,7 @@ static bool stringHasCyrillic(const char* str) {
 SettingsPanel::SettingsPanel()
     : m_openAnim(260.f, Engine::CubicBezier(0.16f, 1.f, 0.3f, 1.f))
     , m_sectAnim(180.f, Engine::CubicBezier(0.16f, 1.f, 0.3f, 1.f))
+    , m_torProbeCtx(std::make_shared<TorProbeContext>())
 {
     // top 5 worldwide non-cis search engines
     m_settings.searchEngines = {
@@ -76,10 +78,34 @@ SettingsPanel::SettingsPanel()
     m_onionRoutingEnabled = Core::TorBridge::isTorRoutingEnabled();
     m_onionTorPort = Core::TorBridge::getTorPort();
     m_onionToggleAnim = m_onionRoutingEnabled ? 1.0f : 0.0f;
+    m_torPortAnim = (m_onionTorPort == 9150) ? 1.0f : 0.0f;
 
     Core::TorProvisioner::instance().setOnLog([this](const std::string&) {
         m_termLogTargetScrollY = 999999.0;
     });
+}
+
+SettingsPanel::~SettingsPanel() {
+    if (m_torProbeCtx) {
+        m_torProbeCtx->alive.store(false);
+    }
+}
+
+void SettingsPanel::triggerTorProbe() {
+    if (!m_torProbeCtx) return;
+    if (m_torProbeCtx->probing.exchange(true)) return;
+    int port = m_onionTorPort;
+    auto ctx = m_torProbeCtx;
+    std::thread([port, ctx]() {
+        bool online = Core::TorBridge::probeTorDaemon(port, 150);
+        if (!ctx->alive.load()) return;
+        bool changed = (ctx->online.load() != online);
+        ctx->online.store(online);
+        if (changed) {
+            ctx->needsRedraw.store(true);
+        }
+        ctx->probing.store(false);
+    }).detach();
 }
 
 void SettingsPanel::setOnionRoutingEnabled(bool v) {
@@ -362,6 +388,8 @@ bool SettingsPanel::wantsRedraw() const {
            std::abs(m_toggleAnim - (m_settings.anim.enabled ? 1.0f : 0.0f)) > 0.002f ||
            (m_section == 4 && Core::TorProvisioner::instance().isRunning()) ||
            (m_section == 4 && std::abs(m_onionToggleAnim - (m_onionRoutingEnabled ? 1.0f : 0.0f)) > 0.002f) ||
+           (m_section == 4 && std::abs(m_torPortAnim - ((m_onionTorPort == 9150) ? 1.0f : 0.0f)) > 0.001f) ||
+           (m_section == 4 && m_torProbeCtx && m_torProbeCtx->needsRedraw.load()) ||
            (m_section == 4 && std::abs(m_torSectionScrollY - m_torSectionTargetScrollY) > 0.05f) ||
            (m_section == 4 && std::abs(m_termLogScrollY - m_termLogTargetScrollY) > 0.05) ||
            (m_section == 4 && std::abs(m_statusBannerAlpha - ((Core::TorProvisioner::instance().getState() != Core::ProvisionState::IDLE) ? 1.0f : 0.0f)) > 0.002f) ||
@@ -472,6 +500,13 @@ void SettingsPanel::update(float dt) {
         float togTarget = m_onionRoutingEnabled ? 1.0f : 0.0f;
         m_onionToggleAnim += (togTarget - m_onionToggleAnim) * (1.0f - std::exp(-22.0f * dt));
 
+        // smooth glide for Tor port selection pill (9050 vs 9150)
+        float portTarget = (m_onionTorPort == 9150) ? 1.0f : 0.0f;
+        m_torPortAnim += (portTarget - m_torPortAnim) * (1.0f - std::exp(-22.0f * dt));
+        if (std::abs(portTarget - m_torPortAnim) < 0.001f) {
+            m_torPortAnim = portTarget;
+        }
+
         // smooth spinner rotation when TorProvisioner is running
         if (Core::TorProvisioner::instance().isRunning()) {
             m_spinnerAngle += 7.0f * dt;
@@ -504,9 +539,9 @@ void SettingsPanel::update(float dt) {
         }
 
         m_torProbeTimer += dt;
-        if (m_torProbeTimer >= 1.5f) {
+        if (m_torProbeTimer >= 2.0f) {
             m_torProbeTimer = 0.0f;
-            m_torProbeOnline = Core::TorBridge::probeTorDaemon(m_onionTorPort, 80);
+            triggerTorProbe();
         }
     }
 }
@@ -519,8 +554,8 @@ void SettingsPanel::sectionSwitch(int to) {
     m_sectAnim.setInstant(0.f);
     m_sectAnim.playForward();
     if (to == 4) {
-        m_torProbeOnline = Core::TorBridge::probeTorDaemon(m_onionTorPort, 80);
         m_torProbeTimer = 0.0f;
+        triggerTorProbe();
     }
 }
 
@@ -1420,7 +1455,7 @@ void SettingsPanel::drawTorSection(cairo_t* cr, double x, double y, double w, do
 
     double cY = y;
 
-    drawLabel(cr, x, cY, "Privacy & Tor Bridge", Theme::TEXT_MAIN, 13.f, true);
+    drawLabel(cr, x, cY, "Tor Bridge", Theme::TEXT_MAIN, 13.f, true);
     cY += 26;
 
     sc(cr, Theme::BORDER_SOFT, 0.3f);
@@ -1605,17 +1640,10 @@ void SettingsPanel::drawTorSection(cairo_t* cr, double x, double y, double w, do
     cairo_stroke(cr);
 
     // Gliding indicator pill
-    double targetPillX = (m_onionTorPort == 9050) ? btn1X : btn2X;
-    double targetPillW = btnW;
-    if (!m_torPortSliderInit) {
-        m_torPortSliderX = targetPillX;
-        m_torPortSliderW = targetPillW;
-        m_torPortSliderInit = true;
-    }
-    m_torPortSliderX += (targetPillX - m_torPortSliderX) * 0.30;
-    m_torPortSliderW += (targetPillW - m_torPortSliderW) * 0.30;
+    double pillX = btn1X + static_cast<double>(m_torPortAnim) * (btn2X - btn1X);
+    double pillW = btnW;
 
-    rr(cr, m_torPortSliderX, cY, m_torPortSliderW, btnH, 6.0);
+    rr(cr, pillX, cY, pillW, btnH, 6.0);
     sc(cr, Theme::BG_ACTIVE, 0.95f);
     cairo_fill_preserve(cr);
     sc(cr, Theme::ACCENT_CALM, 0.85f);
@@ -1623,7 +1651,7 @@ void SettingsPanel::drawTorSection(cairo_t* cr, double x, double y, double w, do
     cairo_stroke(cr);
 
     // Port 9050 button
-    bool port9050Active = (m_onionTorPort == 9050);
+    bool port9050Active = (m_torPortAnim < 0.5f);
     m_torPort9050X = btn1X;
     m_torPort9050Y = cY - scrollY;
     m_torPort9050W = btnW;
@@ -1631,7 +1659,7 @@ void SettingsPanel::drawTorSection(cairo_t* cr, double x, double y, double w, do
     drawCenteredText(cr, btn1X, cY, btnW, btnH, "9050 (System tor daemon)", port9050Active ? Theme::TEXT_MAIN : Theme::TEXT_MUTED, 9.5f, port9050Active);
 
     // Port 9150 button
-    bool port9150Active = (m_onionTorPort == 9150);
+    bool port9150Active = (m_torPortAnim >= 0.5f);
     m_torPort9150X = btn2X;
     m_torPort9150Y = cY - scrollY;
     m_torPort9150W = btnW;
@@ -1653,7 +1681,7 @@ void SettingsPanel::drawTorSection(cairo_t* cr, double x, double y, double w, do
     double dotY = cY + statCardH / 2.0;
     cairo_new_path(cr);
     cairo_arc(cr, dotX, dotY, 4.5, 0, 2 * M_PI);
-    if (m_torProbeOnline) {
+    if (isTorProbeOnline()) {
         cairo_set_source_rgba(cr, 0.38, 0.85, 0.55, 0.95);
         cairo_fill_preserve(cr);
         cairo_set_source_rgba(cr, 0.38, 0.85, 0.55, 0.35);
@@ -1667,6 +1695,9 @@ void SettingsPanel::drawTorSection(cairo_t* cr, double x, double y, double w, do
         cairo_set_line_width(cr, 3.0);
         cairo_stroke(cr);
         drawLabel(cr, dotX + 14.0, cY + 14.0, ("Tor Daemon Offline (127.0.0.1:" + std::to_string(m_onionTorPort) + " unreachable)").c_str(), Theme::TEXT_MUTED, 9.5f, true);
+    }
+    if (m_torProbeCtx) {
+        m_torProbeCtx->needsRedraw.store(false);
     }
 
     cY += statCardH + 16.0;
@@ -1821,7 +1852,7 @@ void SettingsPanel::drawDeleteConfirmModal(cairo_t* cr, double winW, double winH
 
     // backdrop dimming
     cairo_set_source_rgba(cr, 0, 0, 0, 0.65 * alpha);
-    cairo_rectangle(cr, 0, 0, winW, winH);
+    rr(cr, 0, 0, winW, winH, 12.0);
     cairo_fill(cr);
 
     // modal card geometry
@@ -1930,7 +1961,7 @@ void SettingsPanel::drawCreateSearchModal(cairo_t* cr, double winW, double winH)
 
     // backdrop dimming
     cairo_set_source_rgba(cr, 0, 0, 0, 0.65 * alpha);
-    cairo_rectangle(cr, 0, 0, winW, winH);
+    rr(cr, 0, 0, winW, winH, 12.0);
     cairo_fill(cr);
 
     // elongated modal card
@@ -2112,7 +2143,7 @@ void SettingsPanel::drawLumenThresholdModal(cairo_t* cr, double winW, double win
 
     // backdrop dimming
     cairo_set_source_rgba(cr, 0, 0, 0, 0.65 * alpha);
-    cairo_rectangle(cr, 0, 0, winW, winH);
+    rr(cr, 0, 0, winW, winH, 12.0);
     cairo_fill(cr);
 
     // modal card
@@ -2210,7 +2241,7 @@ void SettingsPanel::drawLumenThresholdModal(cairo_t* cr, double winW, double win
 }
 
 void SettingsPanel::drawSidebar(cairo_t* cr, double x, double y, double w, double h) {
-    static const char* tabs[] = { "Animations", "Appearance", "Search", "Compatibility", "Privacy & Tor", "AI Core" };
+    static const char* tabs[] = { "Animations", "Appearance", "Search", "Compatibility", "Tor Bridge", "AI Core" };
     int nTabs = 6;
     double tabH = 36.0, gap = 4.0;
     double tabStartY = y + 8.0;
@@ -2372,7 +2403,7 @@ void SettingsPanel::draw(cairo_t* cr, double winW, double winH) {
     if (p >= 0.001f) {
         // overlay dim
         cairo_set_source_rgba(cr, 0, 0, 0, 0.5 * p);
-        cairo_rectangle(cr, 0, 0, winW, winH);
+        rr(cr, 0, 0, winW, winH, 12.0);
         cairo_fill(cr);
 
         // compute panel geometry
@@ -2955,7 +2986,7 @@ bool SettingsPanel::handleMouseDown(double mx, double my) {
         if (mx >= m_torPort9050X && mx <= m_torPort9050X + m_torPort9050W &&
             my >= m_torPort9050Y && my <= m_torPort9050Y + m_torPort9050H) {
             setOnionTorPort(9050);
-            m_torProbeOnline = Core::TorBridge::probeTorDaemon(9050, 80);
+            triggerTorProbe();
             return true;
         }
 
@@ -2963,7 +2994,7 @@ bool SettingsPanel::handleMouseDown(double mx, double my) {
         if (mx >= m_torPort9150X && mx <= m_torPort9150X + m_torPort9150W &&
             my >= m_torPort9150Y && my <= m_torPort9150Y + m_torPort9150H) {
             setOnionTorPort(9150);
-            m_torProbeOnline = Core::TorBridge::probeTorDaemon(9150, 80);
+            triggerTorProbe();
             return true;
         }
     }
